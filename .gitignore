@@ -1,0 +1,6 @@
+/.env
+/.venv/
+/.cache/
+/.coverage
+/dist/
+__pycache__/

@@ -1,0 +1,50 @@
+[project]
+name = "hisinone-mcp"
+version = "0.1.0"
+description = "MCP server for the HISinOne research management API"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "cryptography>=50.0.2",
+    "fastmcp==4.2.4",
+    "httpx2>=2.16.2",
+    "joserfc>=1.8.0",
+    "mcp>=2.3.0",
+    "py-key-value-aio[redis]>=0.5.0",
+    "pydantic>=2.14.4",
+    "pydantic-settings>=2.16.3",
+    "redis>=8.1.0",
+    "starlette>=1.10.0",
+]
+
+[project.scripts]
+hisinone-mcp = "hisinone_mcp.app:main"
+
+[build-system]
+requires = ["uv_build>=0.13.9,<0.14"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.414",
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.5.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.6",
+]
+
+[tool.pyright]
+typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
+
+[tool.ruff]
+line-length = 88
+cache-dir = ".cache/ruff"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest]
+cache_dir = ".cache/pytest"
+asyncio_mode = "auto"

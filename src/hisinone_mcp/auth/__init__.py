@@ -1,0 +1,1 @@
+"""HISinOne OAuth integration."""
