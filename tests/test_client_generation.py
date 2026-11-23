@@ -86,6 +86,9 @@ def test_normalization_preserves_the_complete_contract(tmp_path: Path) -> None:
                     for name in names
                 ]
 
+    bibtex = expected["paths"]["/fs/res/publication/{id}/bibtex"]["get"]["responses"]
+    bibtex["200"]["content"]["text/plain"] = {"schema": {"type": "string"}}
+
     # Undo only nullability corrections before comparing the entire contract.
     originals = expected["components"]["schemas"]
     observed = observed_response_nulls(originals)

@@ -83,7 +83,22 @@ def _parse_response(*, client: AuthenticatedClient | Client, response: httpx2.Re
     {% else %}
     if {{ code_range[0] }} <= response.status_code <= {{ code_range[1] }}:
     {% endif %}
+    {% set content = response.data.content %}
+    {% if content and "application/json" in content and "text/plain" in content
+          and content["application/json"].media_type_schema.type == "string"
+          and content["text/plain"].media_type_schema.type == "string"
+          and response.prop.get_type_string() == PythonCode("str") %}
+        media_type = response.headers.get("Content-Type", "").partition(";")[0].strip().lower()
+        if media_type == "text/plain":
+            return response.text
+        if media_type == "application/json":
+            value: object = response.json()
+            if isinstance(value, str):
+                return value
+        raise ValueError("Expected a plain-text or JSON string response")
+    {% else %}
         {{ parse_response(parsed_responses, response) | indent(8) }}
+    {% endif %}
     {% endfor %}
     {% if endpoint.responses.default %}
     {{ parse_response(parsed_responses, endpoint.responses.default) | indent(4) }}

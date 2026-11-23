@@ -201,6 +201,17 @@ def allow_observed_nulls_in_responses(
     return specification
 
 
+def add_bibtex_plain_text_response(specification: dict[str, Any]) -> dict[str, Any]:
+    operation = specification["paths"]["/fs/res/publication/{id}/bibtex"]["get"]
+    content = operation["responses"]["200"]["content"]
+
+    schema = content.get("application/json", {}).get("schema", {})
+    if schema.get("type") == "string":
+        content.setdefault("text/plain", {"schema": schema})
+
+    return specification
+
+
 def normalize(source: Path, output: Path) -> None:
     if output.exists() and source.samefile(output):
         raise ValueError(
@@ -213,6 +224,7 @@ def normalize(source: Path, output: Path) -> None:
     for normalizer in (
         declare_path_parameters_from_placeholders,
         allow_observed_nulls_in_responses,
+        add_bibtex_plain_text_response,
     ):
         specification = normalizer(specification)
 
