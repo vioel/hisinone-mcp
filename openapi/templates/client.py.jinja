@@ -63,12 +63,12 @@ class Client:
 {% macro attributes() %}
     {{ declare_attr("raise_on_unexpected_status") | indent(4) }}
     _base_url: str = field(alias="base_url")
-    _cookies: dict[str, str] = field(factory=dict, kw_only=True, alias="cookies")
-    _headers: dict[str, str] = field(factory=dict, kw_only=True, alias="headers")
+    _cookies: dict[str, str] = field(factory=dict[str, str], kw_only=True, alias="cookies")
+    _headers: dict[str, str] = field(factory=dict[str, str], kw_only=True, alias="headers")
     _timeout: httpx2.Timeout | None = field(default=None, kw_only=True, alias="timeout")
     _verify_ssl: str | bool | ssl.SSLContext = field(default=True, kw_only=True, alias="verify_ssl")
     _follow_redirects: bool = field(default=False, kw_only=True, alias="follow_redirects")
-    _httpx_args: dict[str, Any] = field(factory=dict, kw_only=True, alias="httpx_args")
+    _httpx_args: dict[str, Any] = field(factory=dict[str, Any], kw_only=True, alias="httpx_args")
     _client: httpx2.Client | None = field(default=None, init=False)
     _async_client: httpx2.AsyncClient | None = field(default=None, init=False)
 {% endmacro %}{{ attributes() }}

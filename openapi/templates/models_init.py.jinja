@@ -5,7 +5,7 @@
 {% endfor %}
 
 {% if imports %}
-__all__ = (
+__all__: tuple[str, ...] = (
     {% for all in alls | sort %}
     "{{ all }}",
     {% endfor %}

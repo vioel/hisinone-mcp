@@ -26,6 +26,11 @@ if TYPE_CHECKING:
 
 {% if model.additional_properties %}
 {% set additional_property_type = 'Any' if model.additional_properties == True else model.additional_properties.get_type_string() | as_unembedded_code %}
+{% set factory_value_type = additional_property_type %}
+{% if model.additional_properties != True and model.additional_properties.get_lazy_imports(prefix="..") %}
+{# The factory expression is evaluated at class definition, before model references can be resolved. #}
+{% set factory_value_type = '"' ~ (additional_property_type | in_double_quote_literal) ~ '"' %}
+{% endif %}
 {% endif %}
 
 {% set class_name = model.class_info.name %}
@@ -82,7 +87,7 @@ class {{ class_name }}:
     {% endif %}
     {% endfor %}
     {% if model.additional_properties %}
-    additional_properties: dict[str, {{ additional_property_type }}] = _attrs_field(init=False, factory=dict)
+    additional_properties: dict[str, {{ additional_property_type }}] = _attrs_field(init=False, factory=dict[str, {{ factory_value_type }}])
     {% endif %}
 
 {% macro _transform_property(property, content) %}

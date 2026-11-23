@@ -227,6 +227,7 @@ def get_args(path: Path) -> list[str]:
         "generate",
         f"--path={path}",
         "--config=openapi/config.yml",
+        "--custom-template-path=openapi/templates",
         "--meta=uv",
         "--output-path=packages/hisinone-client",
         "--overwrite",

@@ -4,7 +4,7 @@
 {% if inner_template.construct %}
 {% set inner_source = inner_property.python_name + "_data" %}
 {% if property.required %}
-{{ property.python_name }} = []
+{{ property.python_name }}: {{ property.get_type_string(no_optional=True) | as_unembedded_code }} = []
 _{{ property.python_name }} = {{ source }}
 for {{ inner_source }} in (_{{ property.python_name }}):
     {{ inner_template.construct(inner_property, inner_source) | indent(4) }}
@@ -23,15 +23,20 @@ if _{{ property.python_name }} is not UNSET:
 {% endif %}
 {% endmacro %}
 
-{% macro _transform(property, source, destination, transform_method) %}
+{% macro _transform(property, source, destination, declare_type) %}
 {% set inner_property = property.inner_property %}
 {% import "property_templates/" + inner_property.template as inner_template %}
 {% if inner_template.transform %}
 {% set inner_source = inner_property.python_name + "_data" %}
-{{ destination }} = []
+{# A dictionary slot such as _kwargs["json"] needs a typed local for the append loop. #}
+{% set items = destination if destination.isidentifier() else "_" ~ property.python_name ~ "_json" %}
+{{ items }}{% if declare_type or items != destination %}: {{ property.get_type_string(json=True, no_optional=True) | as_unembedded_code }}{% endif %} = []
 for {{ inner_source }} in {{ source }}:
-    {{ inner_template.transform(inner_property, inner_source, inner_property.python_name, transform_method) | indent(4) }}
-    {{ destination }}.append({{ inner_property.python_name }})
+    {{ inner_template.transform(inner_property, inner_source, inner_property.python_name) | indent(4) }}
+    {{ items }}.append({{ inner_property.python_name }})
+{% if items != destination %}
+{{ destination }} = {{ items }}
+{% endif %}
 {% else %}
 {{ destination }} = {{ source }}
 {% endif %}
@@ -43,11 +48,11 @@ for {{ inner_source }} in {{ source }}:
 {% set inner_property = property.inner_property %}
 {% set type_string = property.get_type_string(json=True) | as_unembedded_code %}
 {% if property.required %}
-{{ _transform(property, source, destination, "to_dict") }}
+{{ _transform(property, source, destination, declare_type) }}
 {% else %}
 {% if not skip_unset %}{{ destination }}{% if declare_type %}: {{ type_string }}{% endif %} = UNSET{% endif +%}
 if not isinstance({{ source }}, Unset):
-    {{ _transform(property, source, destination, "to_dict") | indent(4)}}
+    {{ _transform(property, source, destination, false) | indent(4)}}
 {% endif %}
 {% endmacro %}
 

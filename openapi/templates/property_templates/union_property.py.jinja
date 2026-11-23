@@ -8,18 +8,30 @@ def _parse_{{ property.python_name }}(data: object) -> {{ property.get_type_stri
     if isinstance(data, Unset):
         return data
     {% endif %}
+    {% set nullable_pair = property.inner_properties | length == 2 and PythonCode("None") in property.get_type_strings_in_union(json=True) %}
     {% set ns = namespace(contains_unmodified_properties = false) %}
     {% for inner_property in property.inner_properties %}
     {% import "property_templates/" + inner_property.template as inner_template %}
         {% if not inner_template.construct %}
-            {% set ns.contains_unmodified_properties = true %}
+            {% if not nullable_pair or inner_property.get_instance_type_string() != PythonCode("None") %}
+                {% set ns.contains_unmodified_properties = true %}
+            {% endif %}
             {% continue %}
         {% endif %}
-    {% if inner_template.check_type_for_construct and (not loop.last or ns.contains_unmodified_properties) %}
+    {# A JSON type check establishes the container, and its generated decoder reads the contents. #}
+    {% set wire_data = "data" %}
+    {% if inner_property.template == "list_property.py.jinja" %}
+        {% import "property_templates/" + inner_property.inner_property.template as item_template %}
+    {% endif %}
+    {% if inner_property.template == "model_property.py.jinja"
+          or (inner_property.template == "list_property.py.jinja" and item_template.construct) %}
+        {% set wire_data = "cast(" ~ (inner_property.get_type_string(json=True, no_optional=True) | as_unembedded_code) ~ ", data)" %}
+    {% endif %}
+    {% if inner_template.check_type_for_construct and not nullable_pair and (not loop.last or ns.contains_unmodified_properties) %}
     try:
         if not {{ inner_template.check_type_for_construct(inner_property, "data") }}:
             raise TypeError()
-        {{ inner_template.construct(inner_property, "data") | indent(8) }}
+        {{ inner_template.construct(inner_property, wire_data) | indent(8) }}
         return {{ inner_property.python_name }}
     except (TypeError, ValueError, AttributeError, KeyError):
         pass
@@ -28,7 +40,7 @@ def _parse_{{ property.python_name }}(data: object) -> {{ property.get_type_stri
     if not {{ inner_template.check_type_for_construct(inner_property, "data") }}:
         raise TypeError()
     {% endif %}
-    {{ inner_template.construct(inner_property, "data") | indent(4) }}
+    {{ inner_template.construct(inner_property, wire_data) | indent(4) }}
     return {{ inner_property.python_name }}
     {% endif %}
     {% endfor %}
