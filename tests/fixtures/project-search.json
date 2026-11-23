@@ -1,0 +1,141 @@
+[
+  {
+    "id": 100002,
+    "lockVersion": 1,
+    "objGuid": "Example",
+    "_foreigntext": null,
+    "cvId": 1,
+    "cvLockVersion": 1,
+    "uniquename": null,
+    "shorttext": null,
+    "defaulttext": "Example project",
+    "longtext": null,
+    "referenceNumber": null,
+    "startdate": 1,
+    "enddate": 1,
+    "parent": null,
+    "predecessor": null,
+    "projectType": null,
+    "projectStatus": {
+      "id": 1,
+      "lockVersion": 1,
+      "objGuid": "Example",
+      "shorttext": "Example",
+      "defaulttext": "Example",
+      "longtext": "Example",
+      "text": "Example",
+      "hiskeyId": 1,
+      "sortorder": 1,
+      "uniquename": "Example"
+    },
+    "projectObjective": {
+      "id": 1,
+      "lockVersion": 1,
+      "objGuid": "Example",
+      "shorttext": "Example",
+      "defaulttext": "Example",
+      "longtext": "Example",
+      "text": "Example",
+      "hiskeyId": 1,
+      "sortorder": 1,
+      "uniquename": "Example"
+    },
+    "commentary": null,
+    "isEconomical": null,
+    "canViewOriginalData": {
+      "id": 1,
+      "text": "Example",
+      "uniquename": "Example"
+    },
+    "language": {
+      "id": 1,
+      "lockVersion": 1,
+      "shorttext": "Example",
+      "text": "Example",
+      "sortorder": 1,
+      "uniquename": "Example",
+      "iso_639_2": "Example",
+      "iso_639_1": "Example"
+    },
+    "kdsfCategory": null,
+    "members": [
+      {
+        "id": 1,
+        "lockVersion": 1,
+        "objGuid": null,
+        "_foreigntext": null,
+        "projectId": 1,
+        "personId": 1,
+        "positionType": {
+          "id": 1,
+          "defaulttext": "Example",
+          "text": "Example",
+          "hiskeyId": 1,
+          "sortorder": 1
+        },
+        "firstname": "Example",
+        "surname": "Example",
+        "organization": {
+          "id": 1,
+          "text": "Example"
+        },
+        "validFrom": 1,
+        "validTo": 1,
+        "projectPeriodStatus": null,
+        "hasVisibleAffiliations": false
+      }
+    ],
+    "organizations": [],
+    "researchAreas": [],
+    "researchAreasKdsf": [
+      {
+        "id": 1,
+        "lockVersion": 1,
+        "objGuid": "Example",
+        "shorttext": "Example",
+        "defaulttext": "Example",
+        "longtext": "Example",
+        "text": "Example",
+        "sortorder": 1,
+        "uniquename": "Example"
+      }
+    ],
+    "subjectAreas": [
+      {
+        "id": 1,
+        "lockVersion": 1,
+        "objGuid": "Example",
+        "shorttext": "Example",
+        "defaulttext": "Example",
+        "longtext": "Example",
+        "text": "Example",
+        "hiskeyId": 1,
+        "uniquename": "Example"
+      }
+    ],
+    "publications": null,
+    "nominations": null,
+    "fundingPrograms": null,
+    "visibilityValue": {
+      "id": 1,
+      "lockVersion": 1,
+      "objGuid": "Example",
+      "shorttext": "Example",
+      "defaulttext": "Example",
+      "longtext": "Example",
+      "text": "Example",
+      "hiskeyId": 1,
+      "sortorder": 1,
+      "uniquename": "Example"
+    },
+    "keyWords": [],
+    "listviews": null,
+    "isPseudonymized": null,
+    "pseudonymizedTitle": null,
+    "pseudonymizedResearchPartner": null,
+    "stillAvailableDetails": false,
+    "kdsfCategoryDetails": false,
+    "documents": null,
+    "_dynamicComponent": null
+  }
+]

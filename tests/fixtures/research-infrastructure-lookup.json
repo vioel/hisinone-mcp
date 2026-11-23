@@ -1,0 +1,108 @@
+{
+  "_dynamicComponent": {
+    "conditions": {
+      "contexts": [],
+      "triggers": []
+    },
+    "dynamicObjects": [],
+    "guiComponent": {
+      "_foreigntext": null,
+      "children": [],
+      "controlType": null,
+      "fields": [],
+      "id": null,
+      "label": null,
+      "lockVersion": null,
+      "name": null,
+      "objGuid": null,
+      "position": null,
+      "sortorder": null,
+      "visibleAttributes": null
+    }
+  },
+  "_foreigntext": null,
+  "description": null,
+  "id": 7,
+  "language": {
+    "id": 7,
+    "iso_639_1": "Example",
+    "iso_639_2": "Example",
+    "lockVersion": 7,
+    "shorttext": "Example",
+    "sortorder": 7,
+    "text": "Example",
+    "uniquename": "Example"
+  },
+  "listviews": null,
+  "lockVersion": 7,
+  "objGuid": null,
+  "publications": [],
+  "researchInfrastructureAccessKinds": [
+    {
+      "defaulttext": "Example",
+      "hiskeyId": 7,
+      "id": 7,
+      "lockVersion": 7,
+      "longtext": "Example",
+      "objGuid": "Example",
+      "shorttext": "Example",
+      "sortorder": 7,
+      "text": "Example",
+      "uniquename": "Example"
+    }
+  ],
+  "researchInfrastructureEmployments": [],
+  "researchInfrastructureKind": {
+    "defaulttext": "Example",
+    "hiskeyId": 7,
+    "id": 7,
+    "lockVersion": 7,
+    "longtext": "Example",
+    "objGuid": "Example",
+    "shorttext": "Example",
+    "sortorder": 7,
+    "text": "Example",
+    "uniquename": "Example"
+  },
+  "researchInfrastructureOrganisations": [
+    {
+      "_foreigntext": null,
+      "id": 7,
+      "isCoordinator": false,
+      "lockVersion": 7,
+      "objGuid": null,
+      "orgunit": {
+        "id": 7,
+        "text": "Example"
+      },
+      "researchInfrastructureId": 7,
+      "researchPartner": null
+    }
+  ],
+  "researchInfrastructureType": {
+    "defaulttext": "Example",
+    "hiskeyId": 7,
+    "id": 7,
+    "lockVersion": 7,
+    "longtext": "Example",
+    "objGuid": "Example",
+    "shorttext": "Example",
+    "sortorder": 7,
+    "text": "Example",
+    "uniquename": "Example"
+  },
+  "researchInfrastructureUsages": [],
+  "title": "Example",
+  "visibilityValue": {
+    "defaulttext": "Example",
+    "hiskeyId": 7,
+    "id": 7,
+    "lockVersion": 7,
+    "longtext": "Example",
+    "objGuid": "Example",
+    "shorttext": "Example",
+    "sortorder": 7,
+    "text": "Example",
+    "uniquename": "Example"
+  }
+}

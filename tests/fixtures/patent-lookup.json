@@ -1,0 +1,163 @@
+{
+  "_dynamicComponent": {
+    "conditions": {
+      "contexts": [],
+      "triggers": []
+    },
+    "dynamicObjects": [],
+    "guiComponent": {
+      "_foreigntext": null,
+      "children": [],
+      "controlType": null,
+      "fields": [],
+      "id": null,
+      "label": null,
+      "lockVersion": null,
+      "name": null,
+      "objGuid": null,
+      "position": null,
+      "sortorder": null,
+      "visibleAttributes": null
+    }
+  },
+  "_foreigntext": null,
+  "commentary": null,
+  "country": {},
+  "documents": [],
+  "grantDate": 7,
+  "id": 7,
+  "inventors": [
+    {
+      "_foreigntext": null,
+      "hasVisibleAffiliations": false,
+      "id": 7,
+      "lockVersion": 7,
+      "objGuid": null,
+      "organization": {
+        "id": 7,
+        "shorttext": "Example",
+        "text": "Example",
+        "uniquename": "Example"
+      },
+      "percentage": 1.5,
+      "person": {
+        "_foreigntext": null,
+        "academicdegree": null,
+        "academicdegreesuffix": null,
+        "allfirstnames": null,
+        "birthcity": null,
+        "birthdate": null,
+        "birthname": null,
+        "country": null,
+        "firstname": "Example",
+        "gender": null,
+        "id": 7,
+        "lockVersion": 7,
+        "nameprefix": null,
+        "namesuffix": null,
+        "objGuid": null,
+        "personCompleteName": null,
+        "surname": "Example",
+        "title": null
+      },
+      "researchPartner": null
+    }
+  ],
+  "language": {
+    "id": 7,
+    "iso_639_1": "Example",
+    "iso_639_2": "Example",
+    "lockVersion": 7,
+    "shorttext": "Example",
+    "sortorder": 7,
+    "text": "Example",
+    "uniquename": "Example"
+  },
+  "listviews": null,
+  "lockVersion": 7,
+  "objGuid": "Example",
+  "organizations": [
+    {
+      "_foreigntext": null,
+      "id": 7,
+      "lockVersion": 7,
+      "objGuid": null,
+      "organization": {
+        "id": 7,
+        "text": "Example"
+      },
+      "patentId": 7,
+      "researchPartner": null
+    }
+  ],
+  "patentNumber": "Example",
+  "priorityPatent": null,
+  "projects": [],
+  "publicationNumber": "Example",
+  "registrationDate": 7,
+  "registrationType": {
+    "defaulttext": "Example",
+    "hiskeyId": 7,
+    "id": 7,
+    "lockVersion": 7,
+    "longtext": "Example",
+    "objGuid": "Example",
+    "shorttext": "Example",
+    "sortorder": 7,
+    "text": "Example",
+    "uniquename": "Example"
+  },
+  "researchAreas": [],
+  "researchAreasKdsf": [
+    {
+      "defaulttext": "Example",
+      "id": 7,
+      "lockVersion": 7,
+      "longtext": "Example",
+      "objGuid": "Example",
+      "shorttext": "Example",
+      "sortorder": 7,
+      "text": "Example",
+      "uniquename": "Example"
+    }
+  ],
+  "researchContracts": null,
+  "status": {
+    "defaulttext": "Example",
+    "hiskeyId": 7,
+    "id": 7,
+    "lockVersion": 7,
+    "longtext": "Example",
+    "objGuid": "Example",
+    "shorttext": "Example",
+    "sortorder": 7,
+    "text": "Example",
+    "uniquename": "Example"
+  },
+  "subjectAreas": [
+    {
+      "defaulttext": "Example",
+      "hiskeyId": 7,
+      "id": 7,
+      "lockVersion": 7,
+      "longtext": "Example",
+      "objGuid": "Example",
+      "shorttext": "Example",
+      "text": "Example",
+      "uniquename": "Example"
+    }
+  ],
+  "title": "Example",
+  "visibilityValue": {
+    "defaulttext": "Example",
+    "hiskeyId": 7,
+    "id": 7,
+    "lockVersion": 7,
+    "longtext": "Example",
+    "objGuid": "Example",
+    "shorttext": "Example",
+    "sortorder": 7,
+    "text": "Example",
+    "uniquename": "Example"
+  }
+}
