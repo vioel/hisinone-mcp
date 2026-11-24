@@ -2,6 +2,7 @@ import httpx2
 import pytest
 from hisinone_client import AuthenticatedClient
 
+from hisinone_mcp import research
 from hisinone_mcp.research import Project, ProjectError, read_project
 
 
@@ -119,3 +120,72 @@ async def test_project_dates_preserve_epoch_milliseconds() -> None:
     assert project.start_date and project.end_date
     assert project.start_date.isoformat() == "1970-01-01T00:59:59.999000+01:00"
     assert project.end_date.isoformat() == "1970-01-01T01:00:00+01:00"
+
+
+async def test_present_empty_lists_stay_empty() -> None:
+    async with AuthenticatedClient(
+        base_url="https://his.test",
+        token="caller",
+        httpx_args={
+            "transport": httpx2.MockTransport(
+                lambda _: httpx2.Response(
+                    200, json={"id": 7, "creators": [], "globalIdentifiers": []}
+                )
+            )
+        },
+    ) as client:
+        paper = await research.read_publication(client, 7)
+    assert paper.creators == paper.identifiers == []
+
+
+async def test_publication_validates_id_and_bibtex_payload() -> None:
+    async with AuthenticatedClient(
+        base_url="https://his.test",
+        token="caller",
+        httpx_args={
+            "transport": httpx2.MockTransport(
+                lambda _: httpx2.Response(
+                    200, json={"id": 8, "secret": "private-diagnostic"}
+                )
+            )
+        },
+    ) as client:
+        with pytest.raises(research.ResearchError, match="unexpected publication"):
+            await research.read_publication(client, 7)
+        with pytest.raises(research.ResearchError, match="unreadable citation") as exc:
+            await research.read_bibtex(client, 7)
+        assert "private-diagnostic" not in str(exc.value)
+
+
+async def test_plain_text_citation_preserves_comments_and_rejects_diagnostics() -> None:
+    citation = "% Exported by HISinOne\n@book(example, title={Example})\n"
+    replies = iter((citation, "private-diagnostic"))
+    async with AuthenticatedClient(
+        base_url="https://his.test",
+        token="caller",
+        httpx_args={
+            "transport": httpx2.MockTransport(
+                lambda _: httpx2.Response(200, text=next(replies))
+            )
+        },
+    ) as client:
+        assert (await research.read_bibtex(client, 7)).bibtex == citation
+        with pytest.raises(research.ResearchError, match="unreadable citation") as exc:
+            await research.read_bibtex(client, 7)
+        assert "private-diagnostic" not in str(exc.value)
+
+
+async def test_empty_search_result_must_be_a_json_array() -> None:
+    replies = iter((b"{}", b"[]"))
+    async with AuthenticatedClient(
+        base_url="https://his.test",
+        token="caller",
+        httpx_args={
+            "transport": httpx2.MockTransport(
+                lambda _: httpx2.Response(200, content=next(replies))
+            )
+        },
+    ) as client:
+        with pytest.raises(research.ResearchError, match="unexpected publication"):
+            await research.find_publications(client, "example", 10)
+        assert await research.find_publications(client, "example", 10) == []

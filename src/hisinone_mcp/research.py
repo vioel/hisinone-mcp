@@ -1,4 +1,5 @@
 import json
+import re
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -9,15 +10,22 @@ from hisinone_client import AuthenticatedClient
 from hisinone_client.api.fs_res import (
     get_fs_res_project,
     get_fs_res_project_id,
+    get_fs_res_publication_id,
+    get_fs_res_publication_id_bibtex,
+    get_fs_res_publication_simple,
 )
 from hisinone_client.models import (
     CsSysValueGenericValue,
     FsResProjectProjectObj,
+    FsResPublicationGlobalIdentifier,
+    FsResPublicationPublicationCreator,
+    FsResPublicationPublicationTypeValue,
 )
 from hisinone_client.types import Response, Unset
 from pydantic import AwareDatetime, BaseModel
 
 from hisinone_mcp.bearer import oauth_error
+from hisinone_mcp.models import PublicationIdentifier
 from hisinone_mcp.settings import DEFAULT_UPSTREAM_TIMEZONE
 
 MAX_RESULTS = 20
@@ -36,6 +44,26 @@ class Project(ProjectSummary):
     subject_areas: list[str] | None
     start_date: AwareDatetime | None
     end_date: AwareDatetime | None
+
+
+class PublicationSummary(BaseModel):
+    id: int
+    title: str | None
+
+
+class Publication(PublicationSummary):
+    release_year: int | None
+    journal: str | None
+    abstract: str | None
+    creators: list[str] | None
+    publication_type: str | None
+    identifiers: list[PublicationIdentifier] | None
+    publisher: str | None
+
+
+class PublicationBibtex(BaseModel):
+    publication_id: int
+    bibtex: str
 
 
 class ResearchError(Exception):
@@ -103,7 +131,7 @@ def _query(value: str) -> str:
 
 
 def _label(
-    value: CsSysValueGenericValue | None | Unset,
+    value: CsSysValueGenericValue | FsResPublicationPublicationTypeValue | None | Unset,
 ) -> str | None:
     return (value.text or value.defaulttext or None) if value else None
 
@@ -184,3 +212,84 @@ async def search_projects(
     )
     async with _read(call, "project") as rows:
         return [_project_summary(row) for row in rows[:limit]]
+
+
+async def find_publications(
+    client: AuthenticatedClient, query: str, limit: int
+) -> list[PublicationSummary]:
+    call = get_fs_res_publication_simple.asyncio_detailed(
+        client=client, q=_query(query), l=_limit(limit)
+    )
+    async with _read(call, "publication") as rows:
+        return [
+            PublicationSummary(
+                id=_record_id(row.id, "publication"), title=row.title or None
+            )
+            for row in rows[:limit]
+        ]
+
+
+def _name(*parts: str | None | Unset) -> str | None:
+    return " ".join(part.strip() for part in parts if part and part.strip()) or None
+
+
+def _creators(
+    items: list[FsResPublicationPublicationCreator] | Unset,
+) -> list[str] | None:
+    if isinstance(items, Unset):
+        return None
+    ordered = sorted(
+        items,
+        key=lambda item: (
+            item.sortorder if isinstance(item.sortorder, int) else float("inf")
+        ),
+    )
+    return [
+        name
+        for item in ordered
+        if (
+            name := _name(
+                item.firstname, item.nameprefix, item.creatorname, item.namesuffix
+            )
+        )
+    ]
+
+
+def _identifier(item: FsResPublicationGlobalIdentifier) -> PublicationIdentifier | None:
+    kind = _label(item.global_identifier_type)
+    if kind and item.identifier:
+        return PublicationIdentifier(type=kind, value=item.identifier)
+    return None
+
+
+async def read_publication(
+    client: AuthenticatedClient, publication_id: int
+) -> Publication:
+    call = get_fs_res_publication_id.asyncio_detailed(publication_id, client=client)
+    async with _read(call, "publication") as row:
+        year = row.release_year
+        return Publication(
+            id=_record_id(row.id, "publication", publication_id),
+            title=row.title or None,
+            release_year=None if isinstance(year, Unset) else year,
+            journal=(row.journal.defaulttext or None) if row.journal else None,
+            abstract=row.text_abstract or None,
+            creators=_creators(row.creators),
+            publication_type=_label(row.publication_type),
+            identifiers=_values(row.global_identifiers, _identifier),
+            publisher=(row.publisher.label or row.publisher.defaulttext or None)
+            if row.publisher
+            else None,
+        )
+
+
+async def read_bibtex(
+    client: AuthenticatedClient, publication_id: int
+) -> PublicationBibtex:
+    call = get_fs_res_publication_id_bibtex.asyncio_detailed(
+        publication_id, client=client
+    )
+    async with _read(call, "citation") as bibtex:
+        if not re.match(r"\s*(?:%[^\n]*\n\s*)*@[a-zA-Z][\w-]*\s*[{(]", bibtex):
+            raise ResearchError("HISinOne returned an unreadable citation.")
+        return PublicationBibtex(publication_id=publication_id, bibtex=bibtex)

@@ -65,3 +65,29 @@ def register_research_tools(
         """Find projects by text and return their IDs, visible titles and statuses."""
         projects = await _result(research.search_projects(client, query, limit))
         return [models.ProjectSummary.model_validate(project) for project in projects]
+
+    @read_tool
+    async def find_publications(
+        query: Query, limit: Limit = 10, client: AuthenticatedClient = caller_client
+    ) -> list[models.PublicationSummary]:
+        """Find publications by text and return their IDs and titles."""
+        publications = await _result(research.find_publications(client, query, limit))
+        return [
+            models.PublicationSummary.model_validate(publication)
+            for publication in publications
+        ]
+
+    @read_tool
+    async def get_publication(
+        publication_id: int, client: AuthenticatedClient = caller_client
+    ) -> models.Publication:
+        """Get bibliographic details, credited creators, identifiers and abstract."""
+        publication = await _result(research.read_publication(client, publication_id))
+        return models.Publication.model_validate(publication)
+
+    @read_tool
+    async def get_publication_bibtex(
+        publication_id: int, client: AuthenticatedClient = caller_client
+    ) -> research.PublicationBibtex:
+        """Get the BibTeX citation supplied by HISinOne for one publication."""
+        return await _result(research.read_bibtex(client, publication_id))

@@ -33,6 +33,9 @@ AVAILABLE_SCOPES = frozenset({"openid", PROJECT_SCOPE})
 TOOL_CONTRACT = {
     "find_projects": (["query", "limit"], "project_id"),
     "get_project": (["project_id"], "project_id"),
+    "find_publications": (["query", "limit"], "publication_id"),
+    "get_publication": (["publication_id"], "publication_id"),
+    "get_publication_bibtex": (["publication_id"], "publication_id"),
 }
 
 
@@ -152,13 +155,43 @@ class Issuer:
             "members": [{"id": 3, "projectPeriodStatus": None}],
             "publications": None,
         }
-        if path == "project":
+        paper = {"id": 7, "title": "Example paper"}
+        if path in {"project", "publication/simple"}:
             assert dict(request.query_params) == {"q": "Example", "l": "10"}
         else:
             assert not request.query_params
         bodies = {
             "project": [project],
             "project/100002": project,
+            "publication/simple": [{**paper, "_foreigntext": None}],
+            "publication/7": {
+                **paper,
+                "_foreigntext": None,
+                "creators": [
+                    {"sortorder": 2, "creatorname": "Chen", "firstname": "Lin"},
+                    {
+                        "sortorder": 1,
+                        "creatorname": "Meier",
+                        "firstname": "Eva",
+                        "person": {"surname": "Private name", "academicdegree": None},
+                    },
+                    {"person": {"surname": "Uncredited private name"}},
+                    {"creatorname": "Research group"},
+                ],
+                "globalIdentifiers": [
+                    {"identifier": "untyped"},
+                    {
+                        "globalIdentifierType": {"text": "DOI"},
+                        "identifier": "10.1234/example",
+                    },
+                ],
+                "publicationType": {"defaulttext": "Article"},
+                "publisher": {"label": "Example Press"},
+                "releaseYear": 2024,
+                "textAbstract": "Summary",
+                "journal": {"defaulttext": "Example journal"},
+            },
+            "publication/7/bibtex": "@article{example, title={Example paper}}",
         }
         response = JSONResponse(bodies[path])
         response.set_cookie("session", subject)
@@ -288,6 +321,61 @@ async def authorize(
         assert set(body["scope"].split()) == {*scope.split(), "ROLE_scientist"}
         assert "opaque-" not in response.text
         return body["access_token"]
+
+
+async def test_read_only_publication_tools(deployment: tuple[Settings, Issuer]) -> None:
+    settings, issuer = deployment
+    async with asgi_server(create_server(settings)) as server:
+        async with server.http_client() as browser:
+            client_id = await register(browser)
+        bearer = await authorize(server, "scientist", client_id)
+        transport = server.transport(headers={"Authorization": f"Bearer {bearer}"})
+        async with Client(transport) as client:
+            query = {"query": " Example "}
+            search = await client.call_tool("find_publications", query)
+            paper = {"publication_id": 7, "title": "Example paper"}
+            body = search.structured_content
+            assert body is not None and body == {"result": [paper]}
+            lookup = {"publication_id": body["result"][0]["publication_id"]}
+            expected_results = {
+                "get_publication": {
+                    **paper,
+                    "release_year": 2024,
+                    "journal": "Example journal",
+                    "abstract": "Summary",
+                    "creators": ["Eva Meier", "Lin Chen", "Research group"],
+                    "publication_type": "Article",
+                    "identifiers": [{"type": "DOI", "value": "10.1234/example"}],
+                    "publisher": "Example Press",
+                },
+                "get_publication_bibtex": {
+                    "publication_id": 7,
+                    "bibtex": "@article{example, title={Example paper}}",
+                },
+            }
+            for name, expected in expected_results.items():
+                result = await client.call_tool(name, lookup)
+                assert result.structured_content == expected
+            assert len(issuer.project_tokens) == 3
+            assert all(
+                issuer.tokens[token] == "scientist" for token in issuer.project_tokens
+            )
+
+            for args in ({"query": " "}, {"query": "Example", "limit": 21}):
+                invalid = await client.call_tool(
+                    "find_publications", args, raise_on_error=False
+                )
+                assert invalid.is_error
+            assert len(issuer.project_tokens) == 3
+            issuer.denied_readers.add("scientist")
+            for name, args in (
+                ("find_publications", query),
+                ("get_publication", lookup),
+                ("get_publication_bibtex", lookup),
+            ):
+                denied = await client.call_tool(name, args, raise_on_error=False)
+                assert denied.is_error and "permission" in str(denied.content)
+                assert "private-diagnostic" not in str(denied.content)
 
 
 async def test_userinfo_and_project_calls_reuse_connections_across_callers(
