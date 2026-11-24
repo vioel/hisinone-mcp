@@ -1,6 +1,7 @@
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from http.cookiejar import CookieJar, DefaultCookiePolicy
 
 import httpx2
@@ -14,6 +15,17 @@ from starlette.types import ASGIApp
 from hisinone_mcp.auth.provider import HisinoneOAuthProxy
 from hisinone_mcp.auth.verifier import HisinoneTokenVerifier
 from hisinone_mcp.settings import Settings, load_settings
+from hisinone_mcp.tools import register_research_tools
+
+
+@dataclass
+class BorrowedTransport(httpx2.AsyncBaseTransport):
+    """Keep the server's pool open when FastMCP closes a tool's HTTP client."""
+
+    pool: httpx2.AsyncBaseTransport
+
+    async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
+        return await self.pool.handle_async_request(request)
 
 
 def create_server(settings: Settings) -> FastMCP:
@@ -21,7 +33,8 @@ def create_server(settings: Settings) -> FastMCP:
 
     cookie_policy = DefaultCookiePolicy(allowed_domains=())
     cookies = CookieJar(policy=cookie_policy)
-    http = httpx2.AsyncClient(trust_env=False, cookies=cookies)
+    pool = httpx2.AsyncHTTPTransport(trust_env=False)
+    http = httpx2.AsyncClient(transport=pool, trust_env=False, cookies=cookies)
 
     redis = RedisStore(url=settings.redis_dsn.encoded_string())
     fernet = Fernet(settings.oauth_encryption_key.get_secret_value())
@@ -56,7 +69,14 @@ def create_server(settings: Settings) -> FastMCP:
         async with redis, http:
             yield
 
-    return FastMCP(settings.server_name, auth=auth, lifespan=lifespan)
+    server = FastMCP(settings.server_name, auth=auth, lifespan=lifespan)
+    register_research_tools(
+        server,
+        api_base_url=str(settings.upstream_api_base_url),
+        timezone=settings.upstream_timezone,
+        transport=BorrowedTransport(pool),
+    )
+    return server
 
 
 def create_app() -> ASGIApp:

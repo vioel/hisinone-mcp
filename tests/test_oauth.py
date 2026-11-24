@@ -8,6 +8,7 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlencode, urlsplit
+from zoneinfo import ZoneInfo
 
 import httpx2
 import pytest
@@ -22,12 +23,17 @@ from starlette.responses import JSONResponse, RedirectResponse
 
 from hisinone_mcp.app import create_server
 from hisinone_mcp.auth.provider import HisinoneOAuthProxy
+from hisinone_mcp.auth.verifier import HisinoneTokenVerifier
 from hisinone_mcp.settings import Settings
 
 CALLBACK = "http://127.0.0.1:9191/return"
 UPSTREAM_CALLBACK = "http://127.0.0.1/auth/callback"
 PROJECT_SCOPE = "campus.projects:read"
 AVAILABLE_SCOPES = frozenset({"openid", PROJECT_SCOPE})
+TOOL_CONTRACT = {
+    "find_projects": (["query", "limit"], "project_id"),
+    "get_project": (["project_id"], "project_id"),
+}
 
 
 def challenge(verifier: str) -> str:
@@ -43,7 +49,10 @@ class Issuer:
     )
     tokens: dict[str, str] = field(default_factory=dict[str, str])
     userinfo_tokens: list[str] = field(default_factory=list[str])
+    project_tokens: list[str] = field(default_factory=list[str])
+    denied_readers: set[str] = field(default_factory=set[str])
     userinfo_ports: set[int] = field(default_factory=set[int])
+    project_ports: set[int] = field(default_factory=set[int])
     scopes: str = f"openid {PROJECT_SCOPE} ROLE_scientist"
     lifetime: int | None = 120
     include_refresh_token: bool = False
@@ -115,6 +124,46 @@ class Issuer:
         response.set_cookie("session", self.tokens[token])
         return response
 
+    async def research(self, request: Request) -> JSONResponse:
+        assert "cookie" not in request.headers
+        assert request.method == "GET"
+        assert request.client is not None
+        self.project_ports.add(request.client.port)
+        token = request.headers["Authorization"].removeprefix("Bearer ")
+        self.project_tokens.append(token)
+        subject = self.tokens[token]
+        path = request.path_params["path"]
+        if subject in self.denied_readers:
+            return JSONResponse({"message": "private-diagnostic"}, 401)
+        project = {
+            "id": 100002,
+            "defaulttext": "Ein super Projekt",
+            "pseudonymizedTitle": "Visible project" if subject == "bob" else None,
+            "longtext": "Original project description",
+            "canViewOriginalData": {
+                "uniquename": "false" if subject == "bob" else "true"
+            },
+            "startdate": 1745186400000,
+            "enddate": 1745964000000,
+            "projectStatus": {"text": "Prepared"},
+            "projectType": {"text": "Research"},
+            "projectObjective": {"defaulttext": "Basic research"},
+            "subjectAreas": [{"text": "Physics"}],
+            "members": [{"id": 3, "projectPeriodStatus": None}],
+            "publications": None,
+        }
+        if path == "project":
+            assert dict(request.query_params) == {"q": "Example", "l": "10"}
+        else:
+            assert not request.query_params
+        bodies = {
+            "project": [project],
+            "project/100002": project,
+        }
+        response = JSONResponse(bodies[path])
+        response.set_cookie("session", subject)
+        return response
+
 
 @pytest.fixture
 async def deployment(
@@ -128,6 +177,9 @@ async def deployment(
     )
     mock.custom_route("/qisserver/api/v1/cs/psv/oauth/userinfo", methods=["GET"])(
         issuer.userinfo
+    )
+    mock.custom_route("/qisserver/api/v1/fs/res/{path:path}", methods=["GET"])(
+        issuer.research
     )
     async with run_server_async(mock) as url:
         base = url.removesuffix("/mcp")
@@ -238,6 +290,31 @@ async def authorize(
         return body["access_token"]
 
 
+async def test_userinfo_and_project_calls_reuse_connections_across_callers(
+    deployment: tuple[Settings, Issuer],
+) -> None:
+    settings, issuer = deployment
+    with patch(
+        "hisinone_mcp.app.HisinoneOAuthProxy", wraps=HisinoneOAuthProxy
+    ) as create_proxy:
+        server = create_server(settings)
+    verifier = create_proxy.call_args.kwargs["token_verifier"]
+    assert isinstance(verifier, HisinoneTokenVerifier)
+    async with asgi_server(server) as running:
+        async with running.http_client() as browser:
+            client_id = await register(browser)
+        for user, title in (("alice", "Ein super Projekt"), ("bob", "Visible project")):
+            token = await authorize(running, user, client_id)
+            headers = {"Authorization": f"Bearer {token}"}
+            async with Client(running.transport(headers=headers)) as client:
+                result = await client.call_tool("get_project", {"project_id": 100002})
+                assert result.structured_content is not None
+                assert result.structured_content["title"] == title
+        assert len(issuer.project_ports) == 1
+        assert issuer.project_ports <= issuer.userinfo_ports
+    assert verifier.http.is_closed
+
+
 @pytest.mark.parametrize("lifetime", [120, None])
 async def test_callers_and_restart(
     deployment: tuple[Settings, Issuer],
@@ -275,6 +352,57 @@ async def test_callers_and_restart(
             async with Client(transport) as client:
                 assert client.server_info and client.server_info.name == "Research MCP"
                 identity = (await client.call_tool("identity")).data
+                tools = {tool.name: tool for tool in await client.list_tools()}
+                assert set(tools) == {"identity", *TOOL_CONTRACT}
+                for name, (inputs, id_field) in TOOL_CONTRACT.items():
+                    tool = tools[name]
+                    properties = tool.input_schema["properties"]
+                    assert list(properties) == inputs
+                    schema = tool.output_schema
+                    assert schema
+                    if "limit" in inputs:
+                        limit = properties["limit"]
+                        assert (
+                            limit["minimum"],
+                            limit["default"],
+                            limit["maximum"],
+                        ) == (1, 10, 20)
+                        schema = schema["properties"]["result"]["items"]
+                    assert schema["properties"][id_field]["type"] == "integer"
+                    assert id_field in schema["required"]
+                    assert "id" not in schema["properties"]
+                    assert tool.annotations and tool.annotations.read_only_hint
+                    assert tool.annotations.destructive_hint is False
+                for name, fields in (("get_project", ("start_date", "end_date")),):
+                    schema = tools[name].output_schema
+                    assert schema
+                    for field in fields:
+                        variants = schema["properties"][field]["anyOf"]
+                        assert {"type": "string", "format": "date-time"} in variants
+                        assert {"type": "null"} in variants
+                expected = (
+                    "Visible project"
+                    if identity.startswith("bob/")
+                    else "Ein super Projekt"
+                )
+                search = await client.call_tool("find_projects", {"query": "Example"})
+                body = search.structured_content
+                row = {"project_id": 100002, "title": expected, "status": "Prepared"}
+                assert body is not None and body == {"result": [row]}
+                project = await client.call_tool(
+                    "get_project", {"project_id": body["result"][0]["project_id"]}
+                )
+                assert project.structured_content == {
+                    **row,
+                    "description": None
+                    if identity.startswith("bob/")
+                    else "Original project description",
+                    "project_type": "Research",
+                    "objective": "Basic research",
+                    "subject_areas": ["Physics"],
+                    "start_date": "2025-04-21T00:00:00+02:00",
+                    "end_date": "2025-04-30T00:00:00+02:00",
+                }
                 return identity
 
         assert await asyncio.gather(call(alice), call(bob)) == [
@@ -285,6 +413,7 @@ async def test_callers_and_restart(
         assert issuer.tokens[seen["alice"]] == "alice"
         assert issuer.tokens[seen["bob"]] == "bob"
         assert set(issuer.userinfo_tokens) == set(seen.values())
+        assert set(issuer.project_tokens) == set(seen.values())
         headers = {"Authorization": f"Bearer {alice}"}
         async with server.http_client() as c:
             with patch.object(RedisStore, "get", side_effect=RedisError("offline")):
@@ -327,6 +456,38 @@ async def test_callers_and_restart(
             assert "opaque-" not in str(encrypted)
     for secret in [*seen.values(), alice, bob, issuer.client_secret]:
         assert secret not in caplog.text
+
+
+async def test_project_permission_denial_keeps_the_session(
+    deployment: tuple[Settings, Issuer],
+) -> None:
+    settings, issuer = deployment
+    settings = settings.model_copy(
+        update={
+            "oauth_required_scopes": frozenset({"openid", PROJECT_SCOPE}),
+            "upstream_timezone": ZoneInfo("UTC"),
+        }
+    )
+    async with asgi_server(create_server(settings)) as server:
+        async with server.http_client() as browser:
+            client_id = await register(browser)
+        bearer = await authorize(server, "scientist", client_id)
+        transport = server.transport(headers={"Authorization": f"Bearer {bearer}"})
+        async with Client(transport) as client:
+            issuer.denied_readers.add("scientist")
+            denied = await client.call_tool(
+                "get_project", {"project_id": 100002}, raise_on_error=False
+            )
+            assert denied.is_error
+            assert "permission" in str(denied.content)
+            assert "private-diagnostic" not in str(denied.content)
+            issuer.denied_readers.clear()
+            allowed = await client.call_tool("get_project", {"project_id": 100002})
+            assert allowed.structured_content is not None
+            assert allowed.structured_content["project_id"] == 100002
+            assert allowed.structured_content["start_date"] == "2025-04-20T22:00:00Z"
+        assert len(issuer.project_tokens) == 2
+        assert len(set(issuer.project_tokens)) == 1
 
 
 async def test_code_binding_and_expiry(deployment: tuple[Settings, Issuer]) -> None:
@@ -383,6 +544,37 @@ async def test_nonpositive_lifetime_at_redemption(
         body = response.json()
         assert body["error"] == "invalid_grant"
         assert "access_token" not in body
+
+
+@pytest.mark.parametrize("requested", ["openid", f"openid {PROJECT_SCOPE}"])
+async def test_openid_grant_can_list_tools_after_a_denied_project_read(
+    deployment: tuple[Settings, Issuer], requested: str
+) -> None:
+    settings, issuer = deployment
+    issuer.scopes = "openid"
+    issuer.denied_readers.add("alice")
+    async with (
+        asgi_server(create_server(settings)) as server,
+        server.http_client() as browser,
+    ):
+        flow = await begin(browser, "alice", scope=requested)
+        code = await finish(browser, flow)
+        response = await flow.redeem(browser, code)
+        assert response.status_code == 200
+        body = response.json()
+        assert body["scope"] == "openid"
+        transport = server.transport(
+            headers={"Authorization": f"Bearer {body['access_token']}"}
+        )
+        async with Client(transport) as client:
+            denied = await client.call_tool(
+                "get_project", {"project_id": 100002}, raise_on_error=False
+            )
+            assert denied.is_error and "permission" in str(denied.content)
+            assert {tool.name for tool in await client.list_tools()} == set(
+                TOOL_CONTRACT
+            )
+        assert len(issuer.project_tokens) == 1
 
 
 @pytest.mark.parametrize(
