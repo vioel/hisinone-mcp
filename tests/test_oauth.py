@@ -29,13 +29,24 @@ from hisinone_mcp.settings import Settings
 CALLBACK = "http://127.0.0.1:9191/return"
 UPSTREAM_CALLBACK = "http://127.0.0.1/auth/callback"
 PROJECT_SCOPE = "campus.projects:read"
-AVAILABLE_SCOPES = frozenset({"openid", PROJECT_SCOPE})
+PATENT_SCOPE = "campus.patents:read"
+INFRASTRUCTURE_SCOPE = "campus.infrastructure:read"
+AVAILABLE_SCOPES = frozenset(
+    {"openid", PROJECT_SCOPE, PATENT_SCOPE, INFRASTRUCTURE_SCOPE}
+)
 TOOL_CONTRACT = {
     "find_projects": (["query", "limit"], "project_id"),
     "get_project": (["project_id"], "project_id"),
     "find_publications": (["query", "limit"], "publication_id"),
     "get_publication": (["publication_id"], "publication_id"),
     "get_publication_bibtex": (["publication_id"], "publication_id"),
+    "list_patents": (["limit"], "patent_id"),
+    "get_patent": (["patent_id"], "patent_id"),
+    "find_research_infrastructures": (["query", "limit"], "research_infrastructure_id"),
+    "get_research_infrastructure": (
+        ["research_infrastructure_id"],
+        "research_infrastructure_id",
+    ),
 }
 
 
@@ -51,6 +62,7 @@ class Issuer:
         default_factory=dict[str, tuple[str, str]]
     )
     tokens: dict[str, str] = field(default_factory=dict[str, str])
+    granted_scopes: dict[str, set[str]] = field(default_factory=dict[str, set[str]])
     userinfo_tokens: list[str] = field(default_factory=list[str])
     project_tokens: list[str] = field(default_factory=list[str])
     denied_readers: set[str] = field(default_factory=set[str])
@@ -89,6 +101,7 @@ class Issuer:
         assert challenge(str(form["code_verifier"])) == expected
         token = f"opaque-{secrets.token_urlsafe()}"
         self.tokens[token] = subject
+        self.granted_scopes[token] = set(self.scopes.split())
         body = {
             "access_token": token,
             "scope": self.scopes,
@@ -136,7 +149,13 @@ class Issuer:
         self.project_tokens.append(token)
         subject = self.tokens[token]
         path = request.path_params["path"]
-        if subject in self.denied_readers:
+        scope = {
+            "patent": PATENT_SCOPE,
+            "researchInfrastructure": INFRASTRUCTURE_SCOPE,
+        }.get(path.partition("/")[0])
+        if subject in self.denied_readers or (
+            scope is not None and scope not in self.granted_scopes[token]
+        ):
             return JSONResponse({"message": "private-diagnostic"}, 401)
         project = {
             "id": 100002,
@@ -156,7 +175,20 @@ class Issuer:
             "publications": None,
         }
         paper = {"id": 7, "title": "Example paper"}
-        if path in {"project", "publication/simple"}:
+        patent = {
+            "id": 9,
+            "title": "Example patent",
+            "patentNumber": "DE-123",
+            "publicationNumber": "DE-456",
+            "status": {"text": "Granted"},
+            "country": {"defaulttext": "Germany"},
+            "registrationType": {"text": "National"},
+            "registrationDate": 1781042400000,
+            "grantDate": 1793746800000,
+            "inventors": [{"person": {"firstname": "Eva", "surname": "Lang"}}],
+        }
+        infrastructure = {"id": 8, "title": "Example facility"}
+        if path in {"project", "publication/simple", "researchInfrastructure/simple"}:
             assert dict(request.query_params) == {"q": "Example", "l": "10"}
         else:
             assert not request.query_params
@@ -192,6 +224,20 @@ class Issuer:
                 "journal": {"defaulttext": "Example journal"},
             },
             "publication/7/bibtex": "@article{example, title={Example paper}}",
+            "patent": [patent],
+            "patent/9": patent,
+            "researchInfrastructure/simple": [infrastructure],
+            "researchInfrastructure/8": {
+                **infrastructure,
+                "description": "Example description",
+                "researchInfrastructureKind": {"text": "Laboratory"},
+                "researchInfrastructureType": {"defaulttext": "Facility"},
+                "researchInfrastructureAccessKinds": [{"text": "By appointment"}],
+                "researchInfrastructureOrganisations": [
+                    {"orgunit": {"text": "Physics"}, "isCoordinator": True},
+                    {"researchPartner": {"defaulttext": "Partner laboratory"}},
+                ],
+            },
         }
         response = JSONResponse(bodies[path])
         response.set_cookie("session", subject)
@@ -378,6 +424,94 @@ async def test_read_only_publication_tools(deployment: tuple[Settings, Issuer]) 
                 assert "private-diagnostic" not in str(denied.content)
 
 
+@pytest.mark.parametrize(
+    ("scope", "collection", "args", "lookup", "id_param", "summary", "fields"),
+    [
+        (
+            PATENT_SCOPE,
+            "list_patents",
+            {},
+            "get_patent",
+            "patent_id",
+            {
+                "patent_id": 9,
+                "title": "Example patent",
+                "patent_number": "DE-123",
+                "status": "Granted",
+                "country": "Germany",
+            },
+            {
+                "publication_number": "DE-456",
+                "registration_type": "National",
+                "inventors": ["Eva Lang"],
+                "registration_date": "2026-06-10T00:00:00+02:00",
+                "grant_date": "2026-11-04T00:00:00+01:00",
+            },
+        ),
+        (
+            INFRASTRUCTURE_SCOPE,
+            "find_research_infrastructures",
+            {"query": " Example "},
+            "get_research_infrastructure",
+            "research_infrastructure_id",
+            {"research_infrastructure_id": 8, "title": "Example facility"},
+            {
+                "description": "Example description",
+                "kind": "Laboratory",
+                "type": "Facility",
+                "access_modes": ["By appointment"],
+                "organizations": [
+                    {"name": "Physics", "is_coordinator": True},
+                    {"name": "Partner laboratory", "is_coordinator": None},
+                ],
+            },
+        ),
+    ],
+)
+async def test_resource_scope_allows_collection_and_lookup(
+    deployment: tuple[Settings, Issuer],
+    scope: str,
+    collection: str,
+    args: dict[str, str],
+    lookup: str,
+    id_param: str,
+    summary: dict[str, object],
+    fields: dict[str, object],
+) -> None:
+    settings, issuer = deployment
+    async with (
+        asgi_server(create_server(settings)) as server,
+        server.http_client() as browser,
+    ):
+        client_id = await register(browser)
+        issuer.scopes = "openid ROLE_scientist"
+        original = await authorize(server, "scientist", client_id, scope="openid")
+        issuer.scopes = f"openid {scope} ROLE_scientist"
+        granted = await authorize(
+            server, "scientist", client_id, scope=f"openid {scope}"
+        )
+        async with Client(
+            server.transport(headers={"Authorization": f"Bearer {granted}"})
+        ) as client:
+            result = await client.call_tool(collection, args)
+            body = result.structured_content
+            assert body is not None and body == {"result": [summary]}
+            record_id = body["result"][0][id_param]
+            assert isinstance(record_id, int)
+            record = await client.call_tool(lookup, {id_param: record_id})
+            assert record.structured_content == {**summary, **fields}
+        async with Client(
+            server.transport(headers={"Authorization": f"Bearer {original}"})
+        ) as client:
+            for name, inputs in ((collection, args), (lookup, {id_param: record_id})):
+                denied = await client.call_tool(name, inputs, raise_on_error=False)
+                assert denied.is_error and "permission" in str(denied.content)
+                assert "private-diagnostic" not in str(denied.content)
+            assert {tool.name for tool in await client.list_tools()} == set(
+                TOOL_CONTRACT
+            )
+
+
 async def test_userinfo_and_project_calls_reuse_connections_across_callers(
     deployment: tuple[Settings, Issuer],
 ) -> None:
@@ -461,7 +595,10 @@ async def test_callers_and_restart(
                     assert "id" not in schema["properties"]
                     assert tool.annotations and tool.annotations.read_only_hint
                     assert tool.annotations.destructive_hint is False
-                for name, fields in (("get_project", ("start_date", "end_date")),):
+                for name, fields in (
+                    ("get_project", ("start_date", "end_date")),
+                    ("get_patent", ("registration_date", "grant_date")),
+                ):
                     schema = tools[name].output_schema
                     assert schema
                     for field in fields:

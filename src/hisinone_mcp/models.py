@@ -38,3 +38,37 @@ class Publication(PublicationSummary):
     publication_type: str | None
     identifiers: list[PublicationIdentifier] | None
     publisher: str | None
+
+
+class PatentSummary(_Record):
+    patent_id: int = Field(validation_alias="id")
+    title: str | None
+    patent_number: str | None
+    status: str | None
+    country: str | None
+
+
+class Patent(PatentSummary):
+    publication_number: str | None
+    registration_type: str | None
+    inventors: list[str] | None
+    registration_date: AwareDatetime | None
+    grant_date: AwareDatetime | None
+
+
+class ResearchInfrastructureSummary(_Record):
+    research_infrastructure_id: int = Field(validation_alias="id")
+    title: str | None
+
+
+class InfrastructureOrganization(BaseModel):
+    name: str
+    is_coordinator: bool | None
+
+
+class ResearchInfrastructure(ResearchInfrastructureSummary):
+    description: str | None
+    kind: str | None
+    type: str | None
+    access_modes: list[str] | None
+    organizations: list[InfrastructureOrganization] | None

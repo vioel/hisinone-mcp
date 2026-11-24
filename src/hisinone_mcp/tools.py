@@ -91,3 +91,47 @@ def register_research_tools(
     ) -> research.PublicationBibtex:
         """Get the BibTeX citation supplied by HISinOne for one publication."""
         return await _result(research.read_bibtex(client, publication_id))
+
+    @read_tool
+    async def list_patents(
+        limit: Limit = 10, client: AuthenticatedClient = caller_client
+    ) -> list[models.PatentSummary]:
+        """List patents with their numbers, titles, statuses and countries."""
+        patents = await _result(research.list_patents(client, limit))
+        return [models.PatentSummary.model_validate(patent) for patent in patents]
+
+    @read_tool
+    async def get_patent(
+        patent_id: int, client: AuthenticatedClient = caller_client
+    ) -> models.Patent:
+        """Get patent numbers, inventors, registration details and grant date.
+
+        Registration and grant dates mark calendar days in the HISinOne time zone.
+        """
+        patent = await _result(
+            research.read_patent(client, patent_id, timezone=timezone)
+        )
+        return models.Patent.model_validate(patent)
+
+    @read_tool
+    async def find_research_infrastructures(
+        query: Query, limit: Limit = 10, client: AuthenticatedClient = caller_client
+    ) -> list[models.ResearchInfrastructureSummary]:
+        """Find research infrastructures by text and return their IDs and titles."""
+        facilities = await _result(
+            research.search_research_infrastructures(client, query, limit)
+        )
+        return [
+            models.ResearchInfrastructureSummary.model_validate(facility)
+            for facility in facilities
+        ]
+
+    @read_tool
+    async def get_research_infrastructure(
+        research_infrastructure_id: int, client: AuthenticatedClient = caller_client
+    ) -> models.ResearchInfrastructure:
+        """Get a facility's description, type, access modes and organizations."""
+        facility = await _result(
+            research.read_research_infrastructure(client, research_infrastructure_id)
+        )
+        return models.ResearchInfrastructure.model_validate(facility)

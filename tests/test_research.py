@@ -1,8 +1,10 @@
+from pathlib import Path
+
 import httpx2
 import pytest
 from hisinone_client import AuthenticatedClient
 
-from hisinone_mcp import research
+from hisinone_mcp import models, research
 from hisinone_mcp.research import Project, ProjectError, read_project
 
 
@@ -120,6 +122,123 @@ async def test_project_dates_preserve_epoch_milliseconds() -> None:
     assert project.start_date and project.end_date
     assert project.start_date.isoformat() == "1970-01-01T00:59:59.999000+01:00"
     assert project.end_date.isoformat() == "1970-01-01T01:00:00+01:00"
+
+
+async def test_research_collections_bound_their_results() -> None:
+    def respond(request: httpx2.Request) -> httpx2.Response:
+        assert request.method == "GET"
+        assert request.headers["Authorization"] == "Bearer caller"
+        path = request.url.path
+        if path == "/fs/res/patent":
+            assert not request.url.params
+        else:
+            assert path in {
+                "/fs/res/project",
+                "/fs/res/publication/simple",
+                "/fs/res/researchInfrastructure/simple",
+            }
+            assert dict(request.url.params) == {"q": "Example", "l": "2"}
+        rows = [
+            {
+                "id": 1,
+                "title": "First",
+                "defaulttext": "Private",
+                "isPseudonymized": {"id": 1},
+            },
+            {
+                "id": 2,
+                "title": "Second",
+                "defaulttext": "Private",
+                "pseudonymizedTitle": "Visible",
+            },
+            {"id": 3},
+        ]
+        return httpx2.Response(200, json=rows)
+
+    async with AuthenticatedClient(
+        base_url="https://his.test",
+        token="caller",
+        httpx_args={"transport": httpx2.MockTransport(respond)},
+    ) as client:
+        projects = await research.search_projects(client, " Example ", 2)
+        assert [p.title for p in projects] == [None, "Visible"]
+        papers = await research.find_publications(client, " Example ", 2)
+        facilities = await research.search_research_infrastructures(
+            client, " Example ", 2
+        )
+        patents = await research.list_patents(client, 2)
+        assert [p.id for p in papers] == [1, 2]
+        assert [f.id for f in facilities] == [1, 2]
+        assert [p.id for p in patents] == [1, 2]
+        with pytest.raises(research.ResearchError, match="limit"):
+            await research.list_patents(client, 21)
+        with pytest.raises(research.ResearchError, match="search term"):
+            await research.search_research_infrastructures(client, " ", 2)
+
+
+async def test_new_lookups_validate_id_and_allow_missing_fields() -> None:
+    async with AuthenticatedClient(
+        base_url="https://his.test",
+        token="caller",
+        httpx_args={
+            "transport": httpx2.MockTransport(
+                lambda _: httpx2.Response(200, json={"id": 8})
+            )
+        },
+    ) as client:
+        for read in (
+            read_project,
+            research.read_publication,
+            research.read_patent,
+            research.read_research_infrastructure,
+        ):
+            with pytest.raises(research.ResearchError, match="unexpected"):
+                await read(client, 7)
+            record = await read(client, 8)
+            assert record.model_dump(exclude_none=True) == {"id": 8}
+
+
+async def test_rich_lookups_decode_captured_hisinone_responses() -> None:
+    fixtures = Path(__file__).parent / "fixtures"
+    paths = {
+        "/fs/res/project/100002": "project-lookup.json",
+        "/fs/res/publication/7": "publication-lookup.json",
+        "/fs/res/patent/7": "patent-lookup.json",
+        "/fs/res/researchInfrastructure/7": "research-infrastructure-lookup.json",
+    }
+
+    def respond(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
+            200, content=(fixtures / paths[request.url.path]).read_bytes()
+        )
+
+    async with AuthenticatedClient(
+        base_url="https://his.test",
+        token="caller",
+        httpx_args={"transport": httpx2.MockTransport(respond)},
+    ) as client:
+        project = await read_project(client, 100002)
+        assert (project.status, project.project_type, project.objective) == (
+            "Example",
+            None,
+            "Example",
+        )
+        assert project.subject_areas == ["Example"]
+        paper = await research.read_publication(client, 7)
+        assert paper.creators == ["Example Example Example Example"]
+        assert paper.publication_type == paper.publisher == "Example"
+        assert paper.identifiers == [
+            models.PublicationIdentifier(type="Example", value="Example")
+        ]
+        patent = await research.read_patent(client, 7)
+        assert patent.country is None
+        assert patent.registration_type == "Example"
+        assert patent.inventors == ["Example Example"]
+        facility = await research.read_research_infrastructure(client, 7)
+        assert facility.access_modes == ["Example"]
+        assert facility.organizations == [
+            models.InfrastructureOrganization(name="Example", is_coordinator=False)
+        ]
 
 
 async def test_present_empty_lists_stay_empty() -> None:

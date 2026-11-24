@@ -8,24 +8,31 @@ from zoneinfo import ZoneInfo
 import httpx2
 from hisinone_client import AuthenticatedClient
 from hisinone_client.api.fs_res import (
+    get_fs_res_patent,
+    get_fs_res_patent_id,
     get_fs_res_project,
     get_fs_res_project_id,
     get_fs_res_publication_id,
     get_fs_res_publication_id_bibtex,
     get_fs_res_publication_simple,
+    get_fs_res_research_infrastructure_id,
+    get_fs_res_research_infrastructure_simple,
 )
 from hisinone_client.models import (
     CsSysValueGenericValue,
+    FsResPatentPatent,
+    FsResPatentPatentInventor,
     FsResProjectProjectObj,
     FsResPublicationGlobalIdentifier,
     FsResPublicationPublicationCreator,
     FsResPublicationPublicationTypeValue,
+    FsResResearchInfrastructureResearchInfrastructureOrganisation,
 )
 from hisinone_client.types import Response, Unset
 from pydantic import AwareDatetime, BaseModel
 
 from hisinone_mcp.bearer import oauth_error
-from hisinone_mcp.models import PublicationIdentifier
+from hisinone_mcp.models import InfrastructureOrganization, PublicationIdentifier
 from hisinone_mcp.settings import DEFAULT_UPSTREAM_TIMEZONE
 
 MAX_RESULTS = 20
@@ -64,6 +71,35 @@ class Publication(PublicationSummary):
 class PublicationBibtex(BaseModel):
     publication_id: int
     bibtex: str
+
+
+class PatentSummary(BaseModel):
+    id: int
+    title: str | None
+    patent_number: str | None
+    status: str | None
+    country: str | None
+
+
+class Patent(PatentSummary):
+    publication_number: str | None
+    registration_type: str | None
+    inventors: list[str] | None
+    registration_date: AwareDatetime | None
+    grant_date: AwareDatetime | None
+
+
+class ResearchInfrastructureSummary(BaseModel):
+    id: int
+    title: str | None
+
+
+class ResearchInfrastructure(ResearchInfrastructureSummary):
+    description: str | None
+    kind: str | None
+    type: str | None
+    access_modes: list[str] | None
+    organizations: list[InfrastructureOrganization] | None
 
 
 class ResearchError(Exception):
@@ -293,3 +329,101 @@ async def read_bibtex(
         if not re.match(r"\s*(?:%[^\n]*\n\s*)*@[a-zA-Z][\w-]*\s*[{(]", bibtex):
             raise ResearchError("HISinOne returned an unreadable citation.")
         return PublicationBibtex(publication_id=publication_id, bibtex=bibtex)
+
+
+def _patent_summary(
+    row: FsResPatentPatent, expected: int | None = None
+) -> PatentSummary:
+    return PatentSummary(
+        id=_record_id(row.id, "patent", expected),
+        title=row.title or None,
+        patent_number=row.patent_number or None,
+        status=_label(row.status),
+        country=_label(row.country),
+    )
+
+
+def _inventor(item: FsResPatentPatentInventor) -> str | None:
+    person = item.person
+    if not person:
+        return None
+    return person.person_complete_name or _name(
+        person.firstname, person.nameprefix, person.surname, person.namesuffix
+    )
+
+
+async def list_patents(client: AuthenticatedClient, limit: int) -> list[PatentSummary]:
+    limit = _limit(limit)
+    call = get_fs_res_patent.asyncio_detailed(client=client)
+    async with _read(call, "patent") as rows:
+        return [_patent_summary(row) for row in rows[:limit]]
+
+
+async def read_patent(
+    client: AuthenticatedClient,
+    patent_id: int,
+    *,
+    timezone: ZoneInfo = DEFAULT_UPSTREAM_TIMEZONE,
+) -> Patent:
+    call = get_fs_res_patent_id.asyncio_detailed(patent_id, client=client)
+    async with _read(call, "patent") as row:
+        return Patent(
+            **_patent_summary(row, patent_id).model_dump(),
+            publication_number=row.publication_number or None,
+            registration_type=_label(row.registration_type),
+            inventors=_values(row.inventors, _inventor),
+            registration_date=_from_epoch_milliseconds(row.registration_date, timezone),
+            grant_date=_from_epoch_milliseconds(row.grant_date, timezone),
+        )
+
+
+async def search_research_infrastructures(
+    client: AuthenticatedClient, query: str, limit: int
+) -> list[ResearchInfrastructureSummary]:
+    call = get_fs_res_research_infrastructure_simple.asyncio_detailed(
+        client=client, q=_query(query), l=_limit(limit)
+    )
+    async with _read(call, "research infrastructure") as rows:
+        return [
+            ResearchInfrastructureSummary(
+                id=_record_id(row.id, "research infrastructure"),
+                title=row.title or None,
+            )
+            for row in rows[:limit]
+        ]
+
+
+def _organization(
+    item: FsResResearchInfrastructureResearchInfrastructureOrganisation,
+) -> InfrastructureOrganization | None:
+    name = _label(item.orgunit)
+    if not name and item.research_partner:
+        name = item.research_partner.defaulttext or None
+    if not name:
+        return None
+    return InfrastructureOrganization(
+        name=name,
+        is_coordinator=None
+        if isinstance(item.is_coordinator, Unset)
+        else item.is_coordinator,
+    )
+
+
+async def read_research_infrastructure(
+    client: AuthenticatedClient, infrastructure_id: int
+) -> ResearchInfrastructure:
+    call = get_fs_res_research_infrastructure_id.asyncio_detailed(
+        infrastructure_id, client=client
+    )
+    async with _read(call, "research infrastructure") as row:
+        return ResearchInfrastructure(
+            id=_record_id(row.id, "research infrastructure", infrastructure_id),
+            title=row.title or None,
+            description=row.description or None,
+            kind=_label(row.research_infrastructure_kind),
+            type=_label(row.research_infrastructure_type),
+            access_modes=_values(row.research_infrastructure_access_kinds, _label),
+            organizations=_values(
+                row.research_infrastructure_organisations, _organization
+            ),
+        )
