@@ -37,6 +37,7 @@ Redis stores encrypted OAuth registrations, transactions, and grants. Docker Com
 
    Expect the `redis` service to report `healthy`.
 
+7. Continue with the MCP server configuration in the repository root. [Server settings](../docs/server-setup.md#set-the-local-values)
 
 ## Stop Redis
 
