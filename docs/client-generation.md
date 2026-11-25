@@ -14,27 +14,37 @@ For `get_project(project_id)`, the tool passes the ID, the time zone, and an aut
 
 ## Regenerate the client
 
-The generator replaces the entire client package. Make schema corrections in the normalizer and template changes in `openapi/templates/`. Direct edits in the generated package will be lost.
+The repository includes the generated client. To regenerate it or check it against HISinOne, supply the original OpenAPI JSON file. The server and the default test suite use the checked-in client.
 
-1. For a HISinOne upgrade, obtain the installation's original OpenAPI export. On development the path is `/qisserver/api/v1/cs/sys/rest/openapi.json`. Download requires `RIGHT_CS_SYS_MANAGEMENT_VIEW_SERVICES`.
-2. Save the export unchanged as `openapi/openapi.json`. To reproduce the current client, use the existing file.
-3. From the repository root, run the locked generator.
+1. Download the export from your HISinOne installation and keep an unchanged copy outside the repository. On development the path is `/qisserver/api/v1/cs/sys/rest/openapi.json`. Download requires `RIGHT_CS_SYS_MANAGEMENT_VIEW_SERVICES`.
+2. From the repository root, pass the path to the downloaded file as the required positional argument.
 
    ```sh
-   uv run --locked --group codegen python scripts/generate_client.py
+   uv run --locked --group codegen python scripts/generate_client.py /path/to/openapi.json
    ```
 
-4. Check the normalized specification and the generated package. The script writes `openapi/openapi.normalized.json` before replacing `packages/hisinone-client/`.
-5. Run the generation tests and the type checker.
+   By default, the script reads `openapi/config.yml` and `openapi/templates/` from the repository and writes to `packages/hisinone-client/`. You can override each path. Relative paths you supply start in your current working directory.
 
    ```sh
-   uv run pytest tests/test_client_generation.py
-   uv run pyright
+   uv run --locked --group codegen python scripts/generate_client.py \
+     /path/to/openapi.json \
+     --config openapi/config.yml \
+     --custom-template-path openapi/templates \
+     --output-path .cache/preview-client
+   ```
+
+3. Review the files in the selected output directory. The generator overwrites package files there. Keep the export, configuration file, and templates outside that directory. Make lasting corrections in the normalizer or templates. The script deletes its temporary normalized copy when it exits.
+
+4. Run the tests with the same export to check the schema corrections and every generated HTTP method and path. These tests import the workspace client from `packages/hisinone-client/`. Run the type checker.
+
+   ```sh
+   uv run --locked pytest tests --hisinone-openapi /path/to/openapi.json
+   uv run --locked pyright
    ```
 
 The script invokes `openapi-python-client==0.30.0` with `--meta=uv`, `--overwrite`, and `--fail-on-warning`. If generation fails, correct the cause and run it again. A failed run can leave a partial package. [Script](../scripts/generate_client.py) · [Configuration](../openapi/config.yml) · [Upstream generator instructions](https://github.com/openapi-generators/openapi-python-client/blob/v0.30.0/README.md#create-a-new-client)
 
-The locked development export uses OpenAPI 3.0.0. It contains 557 operations on 476 paths, 543 component schemas, and a bearer security scheme. Its SHA-256 is `f203644a388b558bedcea7b92e71a8385991c1bb99a55a6b751832431c1cc3f0`. The generation tests compare every HTTP method and route with the original. [Original export](../openapi/openapi.json) · [Normalized export](../openapi/openapi.normalized.json) · [HIS REST administration guide](https://wiki.his.de/mediawiki/index.php?title=REST-Webservices-HISinOne&oldid=2715791)
+The checked-in client uses the export from HISinOne 2024.06, build `2024.06.12335`, HIS hotfix 108, QIS hotfix 1. The original file has SHA-256 `f203644a388b558bedcea7b92e71a8385991c1bb99a55a6b751832431c1cc3f0`. It uses OpenAPI 3.0.0 and contains 557 operations on 476 paths, 543 component schemas, and a bearer security scheme. For an upgrade, record the new release and checksum here with the generated client changes. [HIS REST administration guide](https://wiki.his.de/mediawiki/index.php?title=REST-Webservices-HISinOne&oldid=2715791)
 
 ## Contract normalization
 
@@ -85,7 +95,7 @@ The fixtures retain the response types and nulls from development with identifyi
 
 ### Accept plain-text BibTeX
 
-The export declares a JSON string for `GET /fs/res/publication/{id}/bibtex`. Development returned HTTP 200 with `Content-Type: text/plain`. The normalizer adds `text/plain` alongside `application/json`. The endpoint template checks the response media type to select the correct string decoder. [BibTeX operation](../openapi/openapi.json#L14587) · [Endpoint template](../openapi/templates/endpoint_module.py.jinja)
+The export declares a JSON string for `GET /fs/res/publication/{id}/bibtex`. Development returned HTTP 200 with `Content-Type: text/plain`. The normalizer adds `text/plain` alongside `application/json`. The endpoint template checks the response media type to select the correct string decoder. [Generated BibTeX operation](../packages/hisinone-client/hisinone_client/api/fs_res/get_fs_res_publication_id_bibtex.py) · [Endpoint template](../openapi/templates/endpoint_module.py.jinja)
 
 ## Maintain the templates
 

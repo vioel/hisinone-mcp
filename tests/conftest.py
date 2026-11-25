@@ -12,6 +12,26 @@ from cryptography.fernet import Fernet
 from hisinone_mcp.settings import Settings
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--hisinone-openapi",
+        type=Path,
+        metavar="PATH",
+        help="Check the generated client against an original HISinOne OpenAPI export.",
+    )
+
+
+@pytest.fixture(scope="session")
+def hisinone_openapi(pytestconfig: pytest.Config) -> Path:
+    source: Path | None = pytestconfig.getoption("hisinone_openapi")
+    if source is None:
+        pytest.skip("Supply --hisinone-openapi=PATH for full-export checks")
+    path = pytestconfig.invocation_params.dir / source
+    if not path.is_file():
+        pytest.fail(f"Expected an OpenAPI export file at {path}")
+    return path
+
+
 @pytest.fixture
 def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settings:
     monkeypatch.chdir(tmp_path)

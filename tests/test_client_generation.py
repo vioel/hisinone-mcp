@@ -1,8 +1,10 @@
 import json
 import re
+import subprocess
+import sys
 from pathlib import Path
-from runpy import run_path
 from typing import Any
+from unittest.mock import patch
 
 import hisinone_client
 import httpx2
@@ -32,11 +34,11 @@ from hisinone_client.models import (
     FsResResearchInfrastructureSimpleResearchInfrastructure as SimpleInfrastructure,
 )
 
+from scripts import generate_client
+
 from .api_client import mock_api_client
 
-ROOT = Path(__file__).resolve().parents[1]
-EXPORT = ROOT / "openapi" / "openapi.json"
-FIXTURES = ROOT / "tests" / "fixtures"
+FIXTURES = Path(__file__).with_name("fixtures")
 METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
 PARAMETER = re.compile(r"\{([^{}]+)\}")
 
@@ -85,17 +87,38 @@ def observed_response_nulls(schemas: dict[str, Any]) -> set[tuple[str, str]]:
     return observed
 
 
-def test_normalization_preserves_the_complete_contract(tmp_path: Path) -> None:
-    expected = json.loads(EXPORT.read_bytes())
+def run_generator(source: Path, *options: str) -> tuple[list[str], bytes]:
+    calls: list[tuple[list[str], Path, bytes]] = []
+
+    def capture_input(command: list[str], **_: object) -> None:
+        option = next(arg for arg in command if arg.startswith("--path="))
+        normalized = Path(option.removeprefix("--path="))
+        calls.append((command, normalized, normalized.read_bytes()))
+
+    with (
+        patch.object(sys, "argv", ["generate_client.py", str(source), *options]),
+        patch.object(subprocess, "run", side_effect=capture_input),
+    ):
+        generate_client.main()
+
+    assert len(calls) == 1
+    command, normalized, contents = calls[0]
+    assert normalized != source.resolve()
+    assert not normalized.exists()
+    return command, contents
+
+
+def test_normalization_preserves_the_complete_contract(
+    tmp_path: Path, hisinone_openapi: Path
+) -> None:
+    expected = json.loads(hisinone_openapi.read_bytes())
     expected["info"]["title"] = "Alternate HISinOne export"
     source = tmp_path / "export.json"
     original = json.dumps(expected).encode("utf-8")
     source.write_bytes(original)
-    output = tmp_path / "normalized.json"
-    generate = run_path(str(ROOT / "scripts" / "generate_client.py"))
-    generate["normalize"](source, output)
+    _, normalized = run_generator(source)
     assert source.read_bytes() == original
-    contract = json.loads(output.read_bytes())
+    contract = json.loads(normalized)
 
     for path, item in expected["paths"].items():
         for method in METHODS.intersection(item):
@@ -207,28 +230,130 @@ def test_nullable_project_relationships_use_the_generated_models() -> None:
         FsResProjectProjectObj.from_dict({"parent": "not a project"})
 
 
-def test_saved_normalized_specification_is_current(tmp_path: Path) -> None:
-    output = tmp_path / "normalized.json"
-    generate = run_path(str(ROOT / "scripts" / "generate_client.py"))
-    generate["normalize"](EXPORT, output)
-    saved = ROOT / "openapi" / "openapi.normalized.json"
-    assert output.read_bytes() == saved.read_bytes()
+@pytest.fixture
+def small_export(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.setattr(
+        generate_client, "NULLABLE_FIELDS", {"Example": ("name", "ref")}
+    )
+    update = "/cs/psv/personProfile/entries/update/{personId}"
+    bibtex = "/fs/res/publication/{id}/bibtex"
+    string = {"type": "string"}
+    ref = {"$ref": "#/components/schemas/Example"}
+    properties = {"name": string, "ref": ref, "unchanged": string}
+    content = {"application/json": {"schema": string}}
+    original = json.dumps(
+        {
+            "paths": {
+                update: {"post": {}},
+                bibtex: {"get": {"responses": {"200": {"content": content}}}},
+            },
+            "components": {"schemas": {"Example": {"properties": properties}}},
+        }
+    ).encode()
+    source = tmp_path / "original export.json"
+    source.write_bytes(original)
+    return source
 
 
-def test_normalization_rejects_overwriting_its_source(tmp_path: Path) -> None:
-    source = tmp_path / "export.json"
+def test_normalization_from_a_small_export(small_export: Path) -> None:
+    original = small_export.read_bytes()
+    _, normalized = run_generator(small_export)
+    result = json.loads(normalized)
+
+    update = "/cs/psv/personProfile/entries/update/{personId}"
+    bibtex = "/fs/res/publication/{id}/bibtex"
+    string = {"type": "string"}
+    ref = {"$ref": "#/components/schemas/Example"}
+    assert result["paths"][update]["post"]["parameters"] == [
+        {
+            "name": "personId",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "integer"},
+        }
+    ]
+    assert result["components"]["schemas"]["Example"]["properties"] == {
+        "name": {"type": "string", "nullable": True},
+        "ref": {"oneOf": [ref, {"type": "object", "nullable": True, "enum": [None]}]},
+        "unchanged": string,
+    }
+    assert result["paths"][bibtex]["get"]["responses"]["200"]["content"] == {
+        "application/json": {"schema": string},
+        "text/plain": {"schema": string},
+    }
+    _, repeated = run_generator(small_export)
+    assert repeated == normalized
+    assert small_export.read_bytes() == original
+
+
+def test_generator_resolves_custom_paths_from_the_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, small_export: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    config = tmp_path / "custom config.yml"
+    templates = tmp_path / "custom templates"
+    output = tmp_path / "custom client"
+    config.touch()
+    templates.mkdir()
+    command, _ = run_generator(
+        small_export.relative_to(tmp_path),
+        "--config",
+        config.name,
+        "--custom-template-path",
+        templates.name,
+        "--output-path",
+        output.name,
+    )
+
+    assert f"--config={config}" in command
+    assert f"--custom-template-path={templates}" in command
+    assert f"--output-path={output}" in command
+
+
+def test_generator_rejects_the_named_input_path() -> None:
+    result = subprocess.run(
+        [sys.executable, generate_client.__file__, "--path", "export.json"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "unrecognized arguments: --path" in result.stderr
+
+
+@pytest.mark.parametrize("output", ["exports", "config", "templates"])
+def test_generator_rejects_inputs_inside_the_output(
+    tmp_path: Path, output: str
+) -> None:
+    source = tmp_path / "exports" / "openapi.json"
+    config = tmp_path / "config" / "client.yml"
+    templates = tmp_path / "templates"
+    for directory in (source.parent, config.parent, templates):
+        directory.mkdir()
     source.write_bytes(b"{}")
-    output = tmp_path / "alias.json"
-    output.hardlink_to(source)
-    generate = run_path(str(ROOT / "scripts" / "generate_client.py"))
-
-    with pytest.raises(ValueError, match="separate output file"):
-        generate["normalize"](source, output)
+    config.touch()
+    result = subprocess.run(
+        [
+            sys.executable,
+            generate_client.__file__,
+            source,
+            "--config",
+            config,
+            "--custom-template-path",
+            templates,
+            "--output-path",
+            output,
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "would overwrite an input" in result.stderr
     assert source.read_bytes() == b"{}"
 
 
-def test_generated_operations_cover_the_export() -> None:
-    paths = json.loads(EXPORT.read_bytes())["paths"]
+def test_generated_operations_cover_the_export(hisinone_openapi: Path) -> None:
+    paths = json.loads(hisinone_openapi.read_bytes())["paths"]
     # The generator gives path variables Python names, e.g. personId becomes person_id.
     expected = [
         (method, PARAMETER.sub("{}", path))

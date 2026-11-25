@@ -1,9 +1,11 @@
 """Generate the HISinOne client from the complete OpenAPI export."""
 
+import argparse
 import json
 import re
 import subprocess
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 MISSING_PATH_PARAMETERS = (
@@ -212,36 +214,15 @@ def add_bibtex_plain_text_response(specification: dict[str, Any]) -> dict[str, A
     return specification
 
 
-def normalize(source: Path, output: Path) -> None:
-    if output.exists() and source.samefile(output):
-        raise ValueError(
-            "Choose a separate output file to preserve the upstream export."
-        )
-
-    with source.open("rb") as file:
-        specification: dict[str, Any] = json.load(file)
-
-    for normalizer in (
-        declare_path_parameters_from_placeholders,
-        allow_observed_nulls_in_responses,
-        add_bibtex_plain_text_response,
-    ):
-        specification = normalizer(specification)
-
-    with output.open("w", encoding="utf-8") as file:
-        json.dump(specification, file, ensure_ascii=False, indent=2)
-        file.write("\n")
-
-
-def get_args(path: Path) -> list[str]:
+def get_args(path: Path, config: Path, templates: Path, output: Path) -> list[str]:
     return [
         "openapi-python-client",
         "generate",
         f"--path={path}",
-        "--config=openapi/config.yml",
-        "--custom-template-path=openapi/templates",
+        f"--config={config}",
+        f"--custom-template-path={templates}",
         "--meta=uv",
-        "--output-path=packages/hisinone-client",
+        f"--output-path={output}",
         "--overwrite",
         "--fail-on-warning",
     ]
@@ -251,11 +232,62 @@ def main() -> None:
     file = Path(__file__).resolve()
     repository = file.parents[1]
 
-    source = repository / "openapi" / "openapi.json"
-    normalize(source, normalized := source.with_suffix(".normalized.json"))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("original", type=Path, help="Original file")
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=repository / "openapi/config.yml",
+        help="Configuration file (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--custom-template-path",
+        type=Path,
+        default=repository / "openapi/templates",
+        help="Template directory (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--output-path",
+        type=Path,
+        default=repository / "packages/hisinone-client",
+        help="Output directory (default: %(default)s)",
+    )
 
-    arguments = get_args(normalized)
-    subprocess.run(arguments, cwd=repository, check=True)
+    args = parser.parse_args()
+    original: Path = args.original.resolve()
+    config: Path = args.config.resolve()
+    templates: Path = args.custom_template_path.resolve()
+    output: Path = args.output_path.resolve()
+
+    for path in (original, config, templates, file):
+        if path.is_relative_to(output):
+            parser.error(f"Output directory {output} would overwrite an input: {path}")
+
+    for path in (original, config):
+        if not path.is_file():
+            parser.error(f"Expected a file at {path}")
+
+    if not templates.is_dir():
+        parser.error(f"Expected a template directory at {templates}")
+
+    with original.open("rb") as file:
+        specification: dict[str, Any] = json.load(file)
+
+    for normalizer in (
+        declare_path_parameters_from_placeholders,
+        allow_observed_nulls_in_responses,
+        add_bibtex_plain_text_response,
+    ):
+        specification = normalizer(specification)
+
+    with TemporaryDirectory() as directory:
+        normalized = Path(directory) / "openapi.json"
+
+        with normalized.open("w", encoding="utf-8") as file:
+            json.dump(specification, file)
+
+        arguments = get_args(normalized, config, templates, output)
+        subprocess.run(arguments, cwd=repository, check=True)
 
 
 if __name__ == "__main__":
