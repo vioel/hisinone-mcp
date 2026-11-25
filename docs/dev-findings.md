@@ -73,6 +73,6 @@ An empty collection alone does not establish access to an individual record. The
 
 ## Permission failures and automated checks
 
-The development project lookup returned a bare HTTP 401 for a user without access. The research service reports a permission error for this response. An explicit `invalid_token` from a research read tells the user to sign in again. The exact challenge for a live revoked HISinOne grant still needs verification. [Domain error handling](../src/hisinone_mcp/research.py) · [HIS authorization server design](https://wiki.his.de/mediawiki/index.php?title=FD-PSV:_OAuth_2.0_mit_HISinOne_als_Autorisierungsserver&oldid=1578275)
+The development project lookup returned a bare HTTP 401 for a user without access. The research service reports a permission error for this response. An explicit `invalid_token` from a research read tells the user to sign in again. The exact challenge for a live revoked HISinOne grant still needs verification. [Domain error handling](../src/hisinone_mcp/protocol.py) · [HIS authorization server design](https://wiki.his.de/mediawiki/index.php?title=FD-PSV:_OAuth_2.0_mit_HISinOne_als_Autorisierungsserver&oldid=1578275)
 
 The integration tests use a mock HISinOne issuer and a private Redis process. They cover authorization code binding, PKCE, expiry, revocation, and user-specific permissions. They also check server restarts and concurrent calls from two users. The callers share connections while their bearer tokens stay separate. [OAuth integration tests](../tests/test_oauth.py)

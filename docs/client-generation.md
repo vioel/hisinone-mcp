@@ -7,7 +7,7 @@ The uv workspace contains the MCP server and the `hisinone-client` package. Both
 | Layer | Responsibility |
 | --- | --- |
 | MCP interface | `tools.py` registers tool names and arguments. It obtains the caller's API client and translates domain errors. `models.py` defines public record fields such as `project_id`. [Tools](../src/hisinone_mcp/tools.py) · [Public models](../src/hisinone_mcp/models.py) |
-| Domain service | `research.py` calls typed REST operations and selects fields the user can see. For example, `read_project` checks the returned ID and chooses the visible title. The service runs independently of FastMCP. [Research service](../src/hisinone_mcp/research.py) |
+| Domain service | `protocol.py` calls typed REST operations and selects fields the user can see. For example, `read_project` checks the returned ID and chooses the visible title. The service runs independently of FastMCP. [Research service](../src/hisinone_mcp/protocol.py) |
 | Generated REST client | `packages/hisinone-client/` contains typed operations and response models. The project lookup sends `GET /fs/res/project/{id}` and decodes the HISinOne response. [Generated lookup](../packages/hisinone-client/hisinone_client/api/fs_res/get_fs_res_project_id.py) |
 
 For `get_project(project_id)`, the tool passes the ID, the time zone, and an authenticated client to `read_project`. Each caller gets a separate client with their HISinOne token. The clients share a connection pool. [Server assembly](../src/hisinone_mcp/app.py) · [Public tool contract](tool-interface.md)

@@ -3,8 +3,8 @@ from pathlib import Path
 import httpx2
 import pytest
 
-from hisinone_mcp import models, research
-from hisinone_mcp.research import Project, ProjectError, read_project
+from hisinone_mcp import models, protocol
+from hisinone_mcp.protocol import Project, ProjectError, read_project
 
 from .api_client import mock_api_client
 
@@ -153,20 +153,20 @@ async def test_research_collections_bound_their_results() -> None:
         return httpx2.Response(200, json=rows)
 
     async with mock_api_client(respond) as client:
-        projects = await research.search_projects(client, " Example ", 2)
+        projects = await protocol.search_projects(client, " Example ", 2)
         assert [p.title for p in projects] == [None, "Visible"]
-        papers = await research.find_publications(client, " Example ", 2)
-        facilities = await research.search_research_infrastructures(
+        papers = await protocol.find_publications(client, " Example ", 2)
+        facilities = await protocol.search_research_infrastructures(
             client, " Example ", 2
         )
-        patents = await research.list_patents(client, 2)
+        patents = await protocol.list_patents(client, 2)
         assert [p.id for p in papers] == [1, 2]
         assert [f.id for f in facilities] == [1, 2]
         assert [p.id for p in patents] == [1, 2]
-        with pytest.raises(research.ResearchError, match="limit"):
-            await research.list_patents(client, 21)
-        with pytest.raises(research.ResearchError, match="search term"):
-            await research.search_research_infrastructures(client, " ", 2)
+        with pytest.raises(protocol.ResearchError, match="limit"):
+            await protocol.list_patents(client, 21)
+        with pytest.raises(protocol.ResearchError, match="search term"):
+            await protocol.search_research_infrastructures(client, " ", 2)
 
 
 async def test_new_lookups_validate_id_and_allow_missing_fields() -> None:
@@ -175,11 +175,11 @@ async def test_new_lookups_validate_id_and_allow_missing_fields() -> None:
     ) as client:
         for read in (
             read_project,
-            research.read_publication,
-            research.read_patent,
-            research.read_research_infrastructure,
+            protocol.read_publication,
+            protocol.read_patent,
+            protocol.read_research_infrastructure,
         ):
-            with pytest.raises(research.ResearchError, match="unexpected"):
+            with pytest.raises(protocol.ResearchError, match="unexpected"):
                 await read(client, 7)
             record = await read(client, 8)
             assert record.model_dump(exclude_none=True) == {"id": 8}
@@ -207,17 +207,17 @@ async def test_rich_lookups_decode_captured_hisinone_responses() -> None:
             "Example",
         )
         assert project.subject_areas == ["Example"]
-        paper = await research.read_publication(client, 7)
+        paper = await protocol.read_publication(client, 7)
         assert paper.creators == ["Example Example Example Example"]
         assert paper.publication_type == paper.publisher == "Example"
         assert paper.identifiers == [
             models.PublicationIdentifier(type="Example", value="Example")
         ]
-        patent = await research.read_patent(client, 7)
+        patent = await protocol.read_patent(client, 7)
         assert patent.country is None
         assert patent.registration_type == "Example"
         assert patent.inventors == ["Example Example"]
-        facility = await research.read_research_infrastructure(client, 7)
+        facility = await protocol.read_research_infrastructure(client, 7)
         assert facility.access_modes == ["Example"]
         assert facility.organizations == [
             models.InfrastructureOrganization(name="Example", is_coordinator=False)
@@ -230,7 +230,7 @@ async def test_present_empty_lists_stay_empty() -> None:
             200, json={"id": 7, "creators": [], "globalIdentifiers": []}
         )
     ) as client:
-        paper = await research.read_publication(client, 7)
+        paper = await protocol.read_publication(client, 7)
     assert paper.creators == paper.identifiers == []
 
 
@@ -238,10 +238,10 @@ async def test_publication_validates_id_and_bibtex_payload() -> None:
     async with mock_api_client(
         lambda _: httpx2.Response(200, json={"id": 8, "secret": "private-diagnostic"})
     ) as client:
-        with pytest.raises(research.ResearchError, match="unexpected publication"):
-            await research.read_publication(client, 7)
-        with pytest.raises(research.ResearchError, match="unreadable citation") as exc:
-            await research.read_bibtex(client, 7)
+        with pytest.raises(protocol.ResearchError, match="unexpected publication"):
+            await protocol.read_publication(client, 7)
+        with pytest.raises(protocol.ResearchError, match="unreadable citation") as exc:
+            await protocol.read_bibtex(client, 7)
         assert "private-diagnostic" not in str(exc.value)
 
 
@@ -251,9 +251,9 @@ async def test_plain_text_citation_preserves_comments_and_rejects_diagnostics() 
     async with mock_api_client(
         lambda _: httpx2.Response(200, text=next(replies))
     ) as client:
-        assert (await research.read_bibtex(client, 7)).bibtex == citation
-        with pytest.raises(research.ResearchError, match="unreadable citation") as exc:
-            await research.read_bibtex(client, 7)
+        assert (await protocol.read_bibtex(client, 7)).bibtex == citation
+        with pytest.raises(protocol.ResearchError, match="unreadable citation") as exc:
+            await protocol.read_bibtex(client, 7)
         assert "private-diagnostic" not in str(exc.value)
 
 
@@ -262,6 +262,6 @@ async def test_empty_search_result_must_be_a_json_array() -> None:
     async with mock_api_client(
         lambda _: httpx2.Response(200, content=next(replies))
     ) as client:
-        with pytest.raises(research.ResearchError, match="unexpected publication"):
-            await research.find_publications(client, "example", 10)
-        assert await research.find_publications(client, "example", 10) == []
+        with pytest.raises(protocol.ResearchError, match="unexpected publication"):
+            await protocol.find_publications(client, "example", 10)
+        assert await protocol.find_publications(client, "example", 10) == []

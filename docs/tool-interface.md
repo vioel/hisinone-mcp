@@ -54,7 +54,7 @@ Patent `inventors` are display names. Each infrastructure organization has a `na
 | Unmarked record with explicit denial | `null` | `null` |
 | Unmarked record without an explicit decision | Original title if present | `null` |
 
-The domain service reads `canViewOriginalData.uniquename` for the explicit decision. The localized display text can vary. [Project mapping](../src/hisinone_mcp/research.py) · [Visibility tests](../tests/test_research.py)
+The domain service reads `canViewOriginalData.uniquename` for the explicit decision. The localized display text can vary. [Project mapping](../src/hisinone_mcp/protocol.py) · [Visibility tests](../tests/test_protocol.py)
 
 ## Calendar dates
 
