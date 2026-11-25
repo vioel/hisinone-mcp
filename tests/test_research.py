@@ -2,10 +2,11 @@ from pathlib import Path
 
 import httpx2
 import pytest
-from hisinone_client import AuthenticatedClient
 
 from hisinone_mcp import models, research
 from hisinone_mcp.research import Project, ProjectError, read_project
+
+from .api_client import mock_api_client
 
 
 async def lookup(response: httpx2.Response) -> Project:
@@ -14,11 +15,7 @@ async def lookup(response: httpx2.Response) -> Project:
         assert request.headers["Authorization"] == "Bearer caller"
         return response
 
-    async with AuthenticatedClient(
-        base_url="https://his.test/api/v1",
-        token="caller",
-        httpx_args={"transport": httpx2.MockTransport(respond)},
-    ) as client:
+    async with mock_api_client(respond, base_url="https://his.test/api/v1") as client:
         return await read_project(client, 100002)
 
 
@@ -155,11 +152,7 @@ async def test_research_collections_bound_their_results() -> None:
         ]
         return httpx2.Response(200, json=rows)
 
-    async with AuthenticatedClient(
-        base_url="https://his.test",
-        token="caller",
-        httpx_args={"transport": httpx2.MockTransport(respond)},
-    ) as client:
+    async with mock_api_client(respond) as client:
         projects = await research.search_projects(client, " Example ", 2)
         assert [p.title for p in projects] == [None, "Visible"]
         papers = await research.find_publications(client, " Example ", 2)
@@ -177,14 +170,8 @@ async def test_research_collections_bound_their_results() -> None:
 
 
 async def test_new_lookups_validate_id_and_allow_missing_fields() -> None:
-    async with AuthenticatedClient(
-        base_url="https://his.test",
-        token="caller",
-        httpx_args={
-            "transport": httpx2.MockTransport(
-                lambda _: httpx2.Response(200, json={"id": 8})
-            )
-        },
+    async with mock_api_client(
+        lambda _: httpx2.Response(200, json={"id": 8})
     ) as client:
         for read in (
             read_project,
@@ -212,11 +199,7 @@ async def test_rich_lookups_decode_captured_hisinone_responses() -> None:
             200, content=(fixtures / paths[request.url.path]).read_bytes()
         )
 
-    async with AuthenticatedClient(
-        base_url="https://his.test",
-        token="caller",
-        httpx_args={"transport": httpx2.MockTransport(respond)},
-    ) as client:
+    async with mock_api_client(respond) as client:
         project = await read_project(client, 100002)
         assert (project.status, project.project_type, project.objective) == (
             "Example",
@@ -242,32 +225,18 @@ async def test_rich_lookups_decode_captured_hisinone_responses() -> None:
 
 
 async def test_present_empty_lists_stay_empty() -> None:
-    async with AuthenticatedClient(
-        base_url="https://his.test",
-        token="caller",
-        httpx_args={
-            "transport": httpx2.MockTransport(
-                lambda _: httpx2.Response(
-                    200, json={"id": 7, "creators": [], "globalIdentifiers": []}
-                )
-            )
-        },
+    async with mock_api_client(
+        lambda _: httpx2.Response(
+            200, json={"id": 7, "creators": [], "globalIdentifiers": []}
+        )
     ) as client:
         paper = await research.read_publication(client, 7)
     assert paper.creators == paper.identifiers == []
 
 
 async def test_publication_validates_id_and_bibtex_payload() -> None:
-    async with AuthenticatedClient(
-        base_url="https://his.test",
-        token="caller",
-        httpx_args={
-            "transport": httpx2.MockTransport(
-                lambda _: httpx2.Response(
-                    200, json={"id": 8, "secret": "private-diagnostic"}
-                )
-            )
-        },
+    async with mock_api_client(
+        lambda _: httpx2.Response(200, json={"id": 8, "secret": "private-diagnostic"})
     ) as client:
         with pytest.raises(research.ResearchError, match="unexpected publication"):
             await research.read_publication(client, 7)
@@ -279,14 +248,8 @@ async def test_publication_validates_id_and_bibtex_payload() -> None:
 async def test_plain_text_citation_preserves_comments_and_rejects_diagnostics() -> None:
     citation = "% Exported by HISinOne\n@book(example, title={Example})\n"
     replies = iter((citation, "private-diagnostic"))
-    async with AuthenticatedClient(
-        base_url="https://his.test",
-        token="caller",
-        httpx_args={
-            "transport": httpx2.MockTransport(
-                lambda _: httpx2.Response(200, text=next(replies))
-            )
-        },
+    async with mock_api_client(
+        lambda _: httpx2.Response(200, text=next(replies))
     ) as client:
         assert (await research.read_bibtex(client, 7)).bibtex == citation
         with pytest.raises(research.ResearchError, match="unreadable citation") as exc:
@@ -296,14 +259,8 @@ async def test_plain_text_citation_preserves_comments_and_rejects_diagnostics() 
 
 async def test_empty_search_result_must_be_a_json_array() -> None:
     replies = iter((b"{}", b"[]"))
-    async with AuthenticatedClient(
-        base_url="https://his.test",
-        token="caller",
-        httpx_args={
-            "transport": httpx2.MockTransport(
-                lambda _: httpx2.Response(200, content=next(replies))
-            )
-        },
+    async with mock_api_client(
+        lambda _: httpx2.Response(200, content=next(replies))
     ) as client:
         with pytest.raises(research.ResearchError, match="unexpected publication"):
             await research.find_publications(client, "example", 10)

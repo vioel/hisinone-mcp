@@ -369,6 +369,46 @@ async def authorize(
         return body["access_token"]
 
 
+async def test_tool_contract(deployment: tuple[Settings, Issuer]) -> None:
+    settings, _ = deployment
+    async with asgi_server(create_server(settings)) as server:
+        async with server.http_client() as browser:
+            client_id = await register(browser)
+        token = await authorize(server, "scientist", client_id)
+        transport = server.transport(headers={"Authorization": f"Bearer {token}"})
+        async with Client(transport) as client:
+            assert client.server_info and client.server_info.name == "Research MCP"
+            tools = {tool.name: tool for tool in await client.list_tools()}
+
+    assert set(tools) == set(TOOL_CONTRACT)
+    for name, (inputs, id_field) in TOOL_CONTRACT.items():
+        tool = tools[name]
+        properties = tool.input_schema["properties"]
+        assert list(properties) == inputs
+        schema = tool.output_schema
+        assert schema
+        if "limit" in inputs:
+            limit = properties["limit"]
+            assert (limit["minimum"], limit["default"], limit["maximum"]) == (1, 10, 20)
+            schema = schema["properties"]["result"]["items"]
+        assert schema["properties"][id_field]["type"] == "integer"
+        assert id_field in schema["required"]
+        assert "id" not in schema["properties"]
+        assert tool.annotations and tool.annotations.read_only_hint
+        assert tool.annotations.destructive_hint is False
+
+    for name, date_fields in (
+        ("get_project", ("start_date", "end_date")),
+        ("get_patent", ("registration_date", "grant_date")),
+    ):
+        schema = tools[name].output_schema
+        assert schema
+        for date_field in date_fields:
+            variants = schema["properties"][date_field]["anyOf"]
+            assert {"type": "string", "format": "date-time"} in variants
+            assert {"type": "null"} in variants
+
+
 async def test_read_only_publication_tools(deployment: tuple[Settings, Issuer]) -> None:
     settings, issuer = deployment
     async with asgi_server(create_server(settings)) as server:
@@ -572,39 +612,7 @@ async def test_callers_and_restart(
         async def call(token: str) -> str:
             transport = server.transport(headers={"Authorization": f"Bearer {token}"})
             async with Client(transport) as client:
-                assert client.server_info and client.server_info.name == "Research MCP"
                 identity = (await client.call_tool("identity")).data
-                tools = {tool.name: tool for tool in await client.list_tools()}
-                assert set(tools) == {"identity", *TOOL_CONTRACT}
-                for name, (inputs, id_field) in TOOL_CONTRACT.items():
-                    tool = tools[name]
-                    properties = tool.input_schema["properties"]
-                    assert list(properties) == inputs
-                    schema = tool.output_schema
-                    assert schema
-                    if "limit" in inputs:
-                        limit = properties["limit"]
-                        assert (
-                            limit["minimum"],
-                            limit["default"],
-                            limit["maximum"],
-                        ) == (1, 10, 20)
-                        schema = schema["properties"]["result"]["items"]
-                    assert schema["properties"][id_field]["type"] == "integer"
-                    assert id_field in schema["required"]
-                    assert "id" not in schema["properties"]
-                    assert tool.annotations and tool.annotations.read_only_hint
-                    assert tool.annotations.destructive_hint is False
-                for name, fields in (
-                    ("get_project", ("start_date", "end_date")),
-                    ("get_patent", ("registration_date", "grant_date")),
-                ):
-                    schema = tools[name].output_schema
-                    assert schema
-                    for field in fields:
-                        variants = schema["properties"][field]["anyOf"]
-                        assert {"type": "string", "format": "date-time"} in variants
-                        assert {"type": "null"} in variants
                 expected = (
                     "Visible project"
                     if identity.startswith("bob/")

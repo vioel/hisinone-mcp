@@ -7,7 +7,6 @@ from typing import Any
 import hisinone_client
 import httpx2
 import pytest
-from hisinone_client import AuthenticatedClient
 from hisinone_client.api.cs_psv import (
     get_cs_psv_configuration_externalsystem_configs_interface_name_key as get_config,
 )
@@ -24,13 +23,20 @@ from hisinone_client.models import (
     FsResPublicationPublication,
     FsResPublicationPublicationTypeRelation,
     FsResPublicationSimplePublication,
-    FsResResearchInfrastructureResearchInfrastructure,
-    FsResResearchInfrastructureSimpleResearchInfrastructure,
     JavaUtilHashMap,
 )
+from hisinone_client.models import (
+    FsResResearchInfrastructureResearchInfrastructure as Infrastructure,
+)
+from hisinone_client.models import (
+    FsResResearchInfrastructureSimpleResearchInfrastructure as SimpleInfrastructure,
+)
+
+from .api_client import mock_api_client
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPORT = ROOT / "openapi" / "openapi.json"
+FIXTURES = ROOT / "tests" / "fixtures"
 METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
 PARAMETER = re.compile(r"\{([^{}]+)\}")
 
@@ -51,31 +57,30 @@ def observed_response_nulls(schemas: dict[str, Any]) -> set[tuple[str, str]]:
                 for item in value:
                     visit(ref.rsplit("/", 1)[-1], item)
 
-    fixtures = ROOT / "tests" / "fixtures"
-    for row in json.loads((fixtures / "patent-list.json").read_bytes()):
+    for row in json.loads((FIXTURES / "patent-list.json").read_bytes()):
         visit("fs.res.patent.Patent", row)
     visit(
         "fs.res.patent.Patent",
-        json.loads((fixtures / "patent-lookup.json").read_bytes()),
+        json.loads((FIXTURES / "patent-lookup.json").read_bytes()),
     )
-    for row in json.loads((fixtures / "project-search.json").read_bytes()):
+    for row in json.loads((FIXTURES / "project-search.json").read_bytes()):
         visit("fs.res.project.ProjectObj", row)
-    for row in json.loads((fixtures / "publication-search.json").read_bytes()):
+    for row in json.loads((FIXTURES / "publication-search.json").read_bytes()):
         visit("fs.res.publication.SimplePublication", row)
     visit(
         "fs.res.project.ProjectObj",
-        json.loads((fixtures / "project-lookup.json").read_bytes()),
+        json.loads((FIXTURES / "project-lookup.json").read_bytes()),
     )
     visit(
         "fs.res.publication.Publication",
-        json.loads((fixtures / "publication-lookup.json").read_bytes()),
+        json.loads((FIXTURES / "publication-lookup.json").read_bytes()),
     )
-    search = fixtures / "research-infrastructure-search.json"
+    search = FIXTURES / "research-infrastructure-search.json"
     for row in json.loads(search.read_bytes()):
         visit("fs.res.researchInfrastructure.SimpleResearchInfrastructure", row)
     visit(
         "fs.res.researchInfrastructure.ResearchInfrastructure",
-        json.loads((fixtures / "research-infrastructure-lookup.json").read_bytes()),
+        json.loads((FIXTURES / "research-infrastructure-lookup.json").read_bytes()),
     )
     return observed
 
@@ -134,49 +139,35 @@ def test_normalization_preserves_the_complete_contract(tmp_path: Path) -> None:
     assert contract == expected
 
 
-@pytest.mark.parametrize("operation", ["lookup", "search"])
-def test_full_project_responses_round_trip(operation: str) -> None:
-    fixture = ROOT / "tests" / "fixtures" / f"project-{operation}.json"
-    payload = json.loads(fixture.read_bytes())
-    rows: list[dict[str, object]] = payload if operation == "search" else [payload]
-    for row in rows:
-        project = FsResProjectProjectObj.from_dict(row)
-        assert project.to_dict() == row
+COLLECTION_MODELS = {
+    "project-search.json": FsResProjectProjectObj,
+    "publication-search.json": FsResPublicationSimplePublication,
+    "patent-list.json": FsResPatentPatent,
+    "research-infrastructure-search.json": SimpleInfrastructure,
+}
 
 
-@pytest.mark.parametrize("operation", ["list", "lookup"])
-def test_full_patent_responses_round_trip(operation: str) -> None:
-    fixture = ROOT / "tests" / "fixtures" / f"patent-{operation}.json"
-    payload = json.loads(fixture.read_bytes())
-    rows: list[dict[str, object]] = payload if operation == "list" else [payload]
-    for row in rows:
-        assert FsResPatentPatent.from_dict(row).to_dict() == row
+@pytest.mark.parametrize("filename", COLLECTION_MODELS)
+def test_collection_response_round_trip(filename: str) -> None:
+    model = COLLECTION_MODELS[filename]
+    rows: list[dict[str, object]] = json.loads((FIXTURES / filename).read_bytes())
+    assert rows
+    assert [model.from_dict(row).to_dict() for row in rows] == rows
 
 
-def test_publication_search_round_trip() -> None:
-    fixture = ROOT / "tests" / "fixtures" / "publication-search.json"
-    for row in json.loads(fixture.read_bytes()):
-        assert FsResPublicationSimplePublication.from_dict(row).to_dict() == row
+LOOKUP_MODELS = {
+    "project-lookup.json": FsResProjectProjectObj,
+    "publication-lookup.json": FsResPublicationPublication,
+    "patent-lookup.json": FsResPatentPatent,
+    "research-infrastructure-lookup.json": Infrastructure,
+}
 
 
-def test_publication_lookup_round_trip() -> None:
-    fixture = ROOT / "tests" / "fixtures" / "publication-lookup.json"
-    row = json.loads(fixture.read_bytes())
-    assert FsResPublicationPublication.from_dict(row).to_dict() == row
-
-
-def test_research_infrastructure_search_round_trip() -> None:
-    fixture = ROOT / "tests" / "fixtures" / "research-infrastructure-search.json"
-    for row in json.loads(fixture.read_bytes()):
-        result = FsResResearchInfrastructureSimpleResearchInfrastructure.from_dict(row)
-        assert result.to_dict() == row
-
-
-def test_research_infrastructure_lookup_round_trip() -> None:
-    fixture = ROOT / "tests" / "fixtures" / "research-infrastructure-lookup.json"
-    row = json.loads(fixture.read_bytes())
-    result = FsResResearchInfrastructureResearchInfrastructure.from_dict(row)
-    assert result.to_dict() == row
+@pytest.mark.parametrize("filename", LOOKUP_MODELS)
+def test_lookup_response_round_trip(filename: str) -> None:
+    model = LOOKUP_MODELS[filename]
+    row: dict[str, object] = json.loads((FIXTURES / filename).read_bytes())
+    assert model.from_dict(row).to_dict() == row
 
 
 @pytest.mark.parametrize("media_type", ["text/plain", "application/json"])
@@ -188,11 +179,7 @@ async def test_bibtex_response_uses_its_media_type(media_type: str) -> None:
         content=body.encode(),
         headers={"Content-Type": f"{media_type}; charset=utf-8"},
     )
-    async with AuthenticatedClient(
-        base_url="https://his.test",
-        token="caller",
-        httpx_args={"transport": httpx2.MockTransport(lambda _: response)},
-    ) as client:
+    async with mock_api_client(lambda _: response) as client:
         parsed = await get_fs_res_publication_id_bibtex.asyncio(7, client=client)
         assert parsed == citation
 
@@ -285,11 +272,7 @@ async def test_optional_list_request_body_round_trips() -> None:
         return httpx2.Response(200, content=request.content or b"[]")
 
     relation = FsResPublicationPublicationTypeRelation(id=7)
-    async with AuthenticatedClient(
-        base_url="https://his.test",
-        token="test",
-        httpx_args={"transport": httpx2.MockTransport(echo)},
-    ) as client:
+    async with mock_api_client(echo) as client:
         send = post_fs_res_publication_type_relation.asyncio_detailed
         await send(client=client)
         await send(client=client, body=[])
@@ -308,11 +291,7 @@ async def test_repaired_route_sends_both_path_parameters() -> None:
         )
         return httpx2.Response(200, json=[])
 
-    async with AuthenticatedClient(
-        base_url="https://his.test",
-        token="test",
-        httpx_args={"transport": httpx2.MockTransport(respond)},
-    ) as client:
+    async with mock_api_client(respond) as client:
         response = await get_config.asyncio_detailed(
             "test/system", "first key", client=client
         )
