@@ -1,6 +1,6 @@
 # Findings from the HISinOne development installation
 
-These observations come from `http://desktop:8080` on 20–24 November 2026. The export identifies HISinOne 2024.06, build 2024.06.12335, hotfix 108. Settings and record visibility can differ on another installation. [Original OpenAPI export](../openapi/openapi.json) · [HIS OAuth guide for this investigation](https://wiki.his.de/mediawiki/index.php?title=Autorisierung_mit_OAuth_2.0-HISinOne&oldid=2680274)
+These observations come from `http://desktop:8080` on 20–24 November 2026. The export identifies HISinOne 2024.06, build 2024.06.12335, hotfix 108. Settings and record visibility can differ on another installation. [Export source and checksum](client-generation.md#regenerate-the-client) · [HIS OAuth guide for this investigation](https://wiki.his.de/mediawiki/index.php?title=Autorisierung_mit_OAuth_2.0-HISinOne&oldid=2680274)
 
 ## Sign-in before consent
 
@@ -56,7 +56,7 @@ A clean `openid` grant permitted tool discovery. Research reads with that grant 
 
 Project `100002` had one member, visibility **versteckt** (level `4000`), and status **vorbereitet** (key `101`). Its API ID matched its logical `lid`. The database row ID was `1`. Use the ID from the tool result.
 
-The second scientist belonged to the same organizational unit. The role's general `fs.res.project.VIEW_PROJECT` right covered status keys `101` and `102`. That broader right can explain why the UI showed the project. The OAuth scope supplied member access and visibility up to level `2000`. [Scientist role restrictions](oauth.md#check-the-roles-research-rights) · [Project search and lookup](../openapi/openapi.json#L13128)
+The second scientist belonged to the same organizational unit. The role's general `fs.res.project.VIEW_PROJECT` right covered status keys `101` and `102`. That broader right can explain why the UI showed the project. The OAuth scope supplied member access and visibility up to level `2000`. [Scientist role restrictions](oauth.md#check-the-roles-research-rights) · [Generated project lookup](../packages/hisinone-client/hisinone_client/api/fs_res/get_fs_res_project_id.py)
 
 To repeat the comparison, use two browser profiles. Sign in with the same scientist role and project scope in each profile. Run `find_projects` with `{"query":"super"}` and `get_project` with `{"project_id":100002}` in each. Compare the member's result with the nonmember's result. [Inspector sign-in](user-guide.md#connect-with-mcp-inspector)
 
@@ -65,11 +65,11 @@ An empty collection alone does not establish access to an individual record. The
 ## API differences that affect tools
 
 - **Project titles.** HISinOne can supply a pseudonymized title and a separate decision about access to original data. Both search and lookup honor that decision. [Public field rules](tool-interface.md#project-visibility) · [HIS release notes on project visibility](https://wiki.his.de/mediawiki/index.php/Release_Notes_HISinOne_2022.06_RES)
-- **Project search.** The export marks project search and lookup as unreleased. Search accepts `q` and `l`. The contract leaves the matched fields unspecified and associates `offset` with `until`. Ordering across REST pages still needs verification. The MCP tools expose bounded results. [Project search contract](../openapi/openapi.json#L12765) · [HIS release notes on `from` and `until`](https://wiki.his.de/mediawiki/index.php/Release_Notes_HISinOne_2023.12_RES)
+- **Project search.** The export marks project search and lookup as unreleased. Search accepts `q` and `l`. The contract leaves the matched fields unspecified and associates `offset` with `until`. Ordering across REST pages still needs verification. The MCP tools expose bounded results. [Generated project search](../packages/hisinone-client/hisinone_client/api/fs_res/get_fs_res_project.py) · [HIS release notes on `from` and `until`](https://wiki.his.de/mediawiki/index.php/Release_Notes_HISinOne_2023.12_RES)
 - **Publication details page.** On 23 November, `/fs/res/publication/1/details` returned HTTP 500 in the HISinOne UI. The application log reported `J2V8 native library not loaded` in `PublicationCitationServiceImpl.renderCitation`. The native library was in the deployed JAR. The load failure remains unexplained. The MCP lookup uses `/fs/res/publication/{id}`, which returned HTTP 200. The separate BibTeX route returned `text/plain`.
 - **Unreadable records.** A successful REST request could still fail during decoding. Project search returned `publications: null`. Publication, patent, and infrastructure responses also contained nulls where their schemas specified objects or strings. The generator now accepts the observed values. [Documented schema changes and fixtures](client-generation.md#contract-normalization)
 - **Project and patent dates.** The development installation sends calendar days as epoch milliseconds at local midnight. The tool returns each timestamp with the offset that applies in the configured HISinOne time zone. [Verified date examples](tool-interface.md#calendar-dates)
-- **Prize rights.** The catalog uses `fs.res.prize.VIEW_PRIZE` for prizes. A personal award is a separate **Preisanerkennung**. Its `fs.res.prize.VIEW_NOMINATION_OWN` right covers a recipient. Prize tools remain outside the current interface. [Prize operation](../openapi/openapi.json#L12626) · [Award operation](../openapi/openapi.json#L11900)
+- **Prize rights.** The catalog uses `fs.res.prize.VIEW_PRIZE` for prizes. A personal award is a separate **Preisanerkennung**. Its `fs.res.prize.VIEW_NOMINATION_OWN` right covers a recipient. Prize tools remain outside the current interface. [Generated prize lookup](../packages/hisinone-client/hisinone_client/api/fs_res/get_fs_res_prize_id.py) · [Generated award lookup](../packages/hisinone-client/hisinone_client/api/fs_res/get_fs_res_nomination_id.py)
 
 ## Permission failures and automated checks
 
